@@ -1,16 +1,6 @@
 # 百日之城 · Hundred-Day City
 
-一款零构建、无后端、可直接部署到 GitHub Pages 的像素风基地建造与增量游戏。你是一台重启中的 AI 运算中心，需要把六张废墟地图编织成物流网络，最终把文明备份送往月球背面。
-
-## 运行
-
-`file://` 无法加载原生 ES Modules，请从项目根目录启动静态服务器：
-
-```bash
-python -m http.server 8000
-```
-
-浏览器打开 `http://localhost:8000/`。游戏支持桌面和移动端；地图使用整数倍缩放，手机可横向滚动查看完整 24×24 格。
+https://bio-innovator.github.io/game/
 
 ## 操作
 
@@ -29,32 +19,3 @@ python -m http.server 8000
 - 日冕脉冲提前一天预警，伤害按格位累计抗性和加固工程减免；地下化建筑免疫脉冲，但产出降至 70%。
 - 发射流程：轨道发射台 → 火箭装配厂 → 900 秒结构装配 → 600 燃料加注 → 发射 → 月背着陆 → 数据核心建城。
 - 三个结局：备份文明、留下（DAY 100 开放）、上传（需意识上传科技）。通关后可进入新周目+，保留科技与运算中心等级。
-
-## 测试
-
-需要 Node.js 20+，无第三方运行时依赖：
-
-```bash
-npm test
-```
-
-测试覆盖数据与素材完整性、单图成本增长、比例断电与限电、加工链、跨图运输、脉冲与地下化、Base64 往返、非法存档拒绝、离线 8 小时封顶、100 建筑性能、三种结局，以及从空状态自动经营到“备份文明”的完整通关。
-
-## 结构
-
-```
-index.html                 页面骨架
-assets/style.css           终端风像素 UI
-assets/palette.js          全局色板
-assets/sprites/            程序化地形、建筑、UI、特效矩阵
-src/core/                  状态树、固定步长、随机数、事件、大数
-src/systems/               能量、生产、物流、灾变、科研、扩张
-src/data/                  建筑、地图、科技、日志数据
-src/render/                Canvas 地图、商路、HUD、粒子与灾变反馈
-src/save/                  localStorage、版本迁移与 Base64 编解码
-tests/                     node:test 单元、性能与完整通关测试
-```
-
-## 部署
-
-仓库 `Settings → Pages → Deploy from a branch → Branch: main → Folder: /(root)`。所有模块与素材均使用相对路径，`.nojekyll` 已包含。
