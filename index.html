@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#15171c">
+  <meta name="description" content="《百日之城》——像素风基地建造与多地图物流增量游戏。延续文明，直到月背。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%233fd0c9' d='M2 2h12v12H2z'/%3E%3Cpath fill='%2315171c' d='M5 5h6v6H5z'/%3E%3C/svg%3E">
+  <title>百日之城 · Hundred-Day City</title>
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand" aria-label="百日之城">
+        <span class="brand-mark" aria-hidden="true">▦</span>
+        <span><strong>百日之城</strong><small>HUNDRED-DAY CITY</small></span>
+      </div>
+      <div class="top-stats" aria-label="全局状态">
+        <div class="stat" id="energy-stat"><span>能量</span><strong id="energy-value">0 / 0</strong></div>
+        <div class="stat"><span>数据</span><strong id="data-value" class="text-research">0</strong></div>
+        <div class="stat"><span>日序</span><strong id="day-value">DAY 001</strong></div>
+        <div class="stat" id="disaster-stat"><span>日冕脉冲</span><strong id="disaster-value">12 天</strong></div>
+      </div>
+      <nav class="top-actions" aria-label="游戏功能">
+        <button type="button" data-open="research">科研</button>
+        <button type="button" data-open="network">网络</button>
+        <button type="button" data-open="endgame">终局</button>
+        <button type="button" data-open="save">存档</button>
+        <button type="button" id="pause-button" aria-label="暂停游戏">暂停</button>
+      </nav>
+    </header>
+
+    <section class="resource-strip" id="resource-strip" aria-label="当前地图资源"></section>
+
+    <main class="game-layout">
+      <aside class="panel build-panel" id="build-panel" aria-label="建筑选择">
+        <div class="panel-heading">
+          <div><span class="eyebrow">CONSTRUCTION</span><h2>建造节点</h2></div>
+          <span class="key-hint">B</span>
+        </div>
+        <div class="category-tabs" id="category-tabs" role="tablist" aria-label="建筑类别"></div>
+        <div class="build-list" id="build-list"></div>
+        <div class="build-help">选择蓝图，再点击地图空格。点击已建同类节点可继续堆叠。</div>
+      </aside>
+
+      <section class="map-stage" aria-label="地图场景">
+        <div class="map-heading">
+          <div>
+            <span class="eyebrow" id="map-english">ASHEN PLAIN / SECTOR 01</span>
+            <h1 id="map-name">灰烬平原</h1>
+          </div>
+          <button type="button" data-open="maps" class="map-switch">切换区域 <span id="map-count">1 / 6</span></button>
+        </div>
+        <div class="map-description" id="map-description"></div>
+        <div class="map-toolbar" aria-label="地图控制">
+          <div class="zoom-controls" aria-label="整数缩放">
+            <span>缩放</span>
+            <button type="button" data-zoom="1" class="active">1×</button>
+            <button type="button" data-zoom="2">2×</button>
+            <button type="button" data-zoom="3">3×</button>
+          </div>
+          <div class="speed-controls" aria-label="游戏速度">
+            <span>流速</span>
+            <button type="button" data-speed="1" class="active">1×</button>
+            <button type="button" data-speed="2">2×</button>
+            <button type="button" data-speed="4">4×</button>
+          </div>
+          <span class="map-status" id="map-status">网络待命</span>
+        </div>
+        <div class="canvas-scroll" id="canvas-scroll">
+          <canvas id="game-canvas" width="576" height="576" tabindex="0" aria-label="24 乘 24 格城市地图。选择左侧建筑后点击格子建造。"></canvas>
+        </div>
+        <div class="selection-panel" id="selection-panel">
+          <span class="muted">未选择格子。地图上每个光点，都是仍愿意运转的东西。</span>
+        </div>
+      </section>
+
+      <aside class="panel log-panel" id="log-panel" aria-label="系统日志">
+        <div class="panel-heading">
+          <div><span class="eyebrow">ARCHIVE TERMINAL</span><h2>值守日志</h2></div>
+          <button type="button" id="log-toggle" aria-expanded="true" aria-label="折叠日志">−</button>
+        </div>
+        <div class="log-stream" id="log-stream" role="log" aria-live="polite"></div>
+        <div class="center-status">
+          <span>AI 运算中心</span>
+          <strong id="center-level">LV.1</strong>
+          <span id="quota-value">可用配额 0</span>
+        </div>
+      </aside>
+    </main>
+
+    <nav class="mobile-nav" aria-label="移动端面板">
+      <button type="button" data-mobile="build">建造</button>
+      <button type="button" data-mobile="map" class="active">地图</button>
+      <button type="button" data-open="research">科研</button>
+      <button type="button" data-open="network">物流</button>
+      <button type="button" data-mobile="log">日志</button>
+    </nav>
+  </div>
+
+  <dialog id="game-dialog" class="game-dialog">
+    <div class="dialog-header"><div><span class="eyebrow" id="dialog-eyebrow">SYSTEM</span><h2 id="dialog-title">系统</h2></div><button type="button" id="dialog-close" aria-label="关闭弹窗">×</button></div>
+    <div class="dialog-content" id="dialog-content"></div>
+  </dialog>
+
+  <dialog id="offline-dialog" class="game-dialog offline-dialog">
+    <div class="dialog-header"><div><span class="eyebrow">UNSUPPORTED TEMPORAL EVENT</span><h2>欢迎回来，管理员</h2></div></div>
+    <div class="dialog-content" id="offline-content"></div>
+    <button type="button" id="offline-close" class="primary wide">接收离线收益</button>
+  </dialog>
+
+  <section id="ending-screen" class="ending-screen" hidden aria-live="polite"></section>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript>《百日之城》需要启用 JavaScript 才能运行。</noscript>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
