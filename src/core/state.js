@@ -1,5 +1,5 @@
 import { BUILDING_BY_ID } from "../data/buildings.js";
-import { DAY_SECONDS, MAPS, MAP_BY_ID, MAP_SIZE } from "../data/maps.js";
+import { DAY_SECONDS, MAP_BY_ID, MAP_SIZE } from "../data/maps.js";
 import { TECH_BY_ID } from "../data/techs.js";
 import { LOG_LIBRARY, formatLog } from "../data/logs.js";
 import { clampResource, safeAdd, safeMultiply } from "./decimal.js";
@@ -87,7 +87,14 @@ export function createInitialState(options = {}) {
     difficulty: options.difficulty ?? 1,
     cycle: options.cycle ?? 1,
     ending: null,
-    settings: { zoom: 1, speed: 1, paused: false },
+    settings: {
+      zoom: 1,
+      speed: 1,
+      paused: false,
+      theme: globalThis.matchMedia?.("(prefers-color-scheme: light)")?.matches ? "light" : "dark",
+      fontSize: 13,
+      sound: false,
+    },
     logs: [],
     savedAt: Date.now(),
   };
@@ -375,19 +382,6 @@ export function apply(state, action) {
       state.day = Math.floor(state.elapsed / DAY_SECONDS) + 1;
       return result(true);
     }
-    case "OFFLINE_TIME": {
-      state.elapsed += action.seconds;
-      state.day = Math.floor(state.elapsed / DAY_SECONDS) + 1;
-      state.nextPulseDay = state.day + 12;
-      state.lastWarningDay = 0;
-      for (const map of Object.values(state.maps)) {
-        map.nextHazard = state.elapsed + 45;
-        map.stormUntil = 0;
-        map.blackoutFor = 0;
-        map.rationing = false;
-      }
-      return result(true);
-    }
     case "BUILD_TICK": {
       for (const map of Object.values(state.maps)) {
         for (const building of map.buildings) {
@@ -501,7 +495,7 @@ export function apply(state, action) {
         map.resources[resource] = clampResource(map.resources[resource] + amount * building.count * 0.35, getCapacity(state, action.mapId, resource));
       }
       map.buildings[action.index] = null;
-      return result(true, "节点已拆除，回收了 35% 基础材料。");
+      return result(true, "节点已拆除，返还了 35% 基础材料。");
     }
     case "UNDERGROUND": {
       const building = getMap(state, action.mapId)?.buildings[action.index];
@@ -610,9 +604,14 @@ export function apply(state, action) {
       gameEvents.emit("newgame", {});
       return result(true, `周目 ${state.cycle} 已启动。科技与中心等级保留。`);
     }
-    case "SET_SETTING":
+    case "SET_SETTING": {
+      const allowed = ["zoom", "speed", "paused", "theme", "fontSize", "sound"];
+      if (!allowed.includes(action.key)) return result(false, "未知设置项。");
+      if (action.key === "theme" && !["dark", "light"].includes(action.value)) return result(false, "未知主题。");
+      if (action.key === "fontSize" && ![13, 15, 17].includes(action.value)) return result(false, "字号不受支持。");
       state.settings[action.key] = action.value;
       return result(true);
+    }
     default:
       return result(false, `未知操作：${action.type}`);
   }
@@ -632,12 +631,4 @@ export function getBuildingResistance(state, mapId, index) {
 
 export function getCenterUpgradeCost(state) {
   return 100 * (state.centerLevel ** 2);
-}
-
-export function getUnlockedBuildingCount(state) {
-  return Object.values(BUILDING_BY_ID).filter((definition) => hasTech(state, definition.unlock)).length;
-}
-
-export function getMapDefinitions() {
-  return MAPS;
 }

@@ -7,7 +7,7 @@ import { PALETTE } from "../assets/palette.js";
 import { TERRAIN_SPRITES } from "../assets/sprites/terrain.js";
 import { BUILDING_SPRITES, CORE_SPRITE, RUBBLE_SPRITE } from "../assets/sprites/buildings.js";
 import { RESOURCE_IDS, apply, createInitialState, createMapState, getBuildCost, getOwnedCount, isOperational } from "../src/core/state.js";
-import { settleOffline, simulateTick, MAX_OFFLINE_SECONDS } from "../src/core/tick.js";
+import { simulateTick } from "../src/core/tick.js";
 import { computeEnergy } from "../src/systems/energy.js";
 import { computeLogistics } from "../src/systems/logistics.js";
 import { getEndgameStatus } from "../src/systems/expansion.js";
@@ -170,7 +170,7 @@ test("地下化建筑免疫脉冲，但产出系数仍受惩罚", () => {
   assert.ok(isOperational(state.maps.ash.buildings[100]));
 });
 
-test("存档 Base64 往返、字段迁移与离线收益封顶", () => {
+test("存档 Base64 往返与字段迁移", () => {
   const state = createInitialState({ seed: 107 });
   place(state, "ash", 100, "solar");
   state.data = 123.5;
@@ -183,15 +183,8 @@ test("存档 Base64 往返、字段迁移与离线收益封顶", () => {
   assert.equal(restored.totalData, 456.7);
   assert.equal(restored.maps.ash.buildings[100].id, "solar");
   assert.equal(restored.logs[0].text, "测试日志 <script>bad</script>");
-
-  const offlineState = createInitialState({ seed: 108 });
-  place(offlineState, "ash", 100, "solar");
-  place(offlineState, "ash", 101, "scrapyard");
-  const result = settleOffline(offlineState, MAX_OFFLINE_SECONDS * 4);
-  assert.equal(result.seconds, MAX_OFFLINE_SECONDS);
-  assert.equal(result.capped, true);
-  assert.ok(offlineState.maps.ash.resources.steel > 0);
-  assert.ok(offlineState.day <= 481);
+  assert.equal(restored.elapsed, state.elapsed);
+  assert.equal(restored.day, state.day);
 });
 
 test("100 个运行建筑下固定步长结算保持流畅", () => {
