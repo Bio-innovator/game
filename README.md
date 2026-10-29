@@ -2,8 +2,7 @@
 
 一款像素风基地建造与多地图物流增量游戏。建造节点、铺设商路，在一百天内把文明备份送往月球背面。
 
-[在线试玩](https://bio-innovator.github.io/game/) 
-https://bio-innovator.github.io/game/
+在线试玩: https://bio-innovator.github.io/game/
 
 ## 背景
 
