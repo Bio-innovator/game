@@ -14,7 +14,7 @@
     <header class="topbar">
       <div class="brand" aria-label="百日之城">
         <span class="brand-mark" aria-hidden="true">▦</span>
-        <span><strong>百日之城</strong><small>HUNDRED-DAY CITY</small></span>
+        <span><strong>百日之城</strong><small>Hundred-Day City</small></span>
       </div>
       <div class="top-stats" aria-label="全局状态">
         <div class="stat" id="energy-stat"><span>能量</span><strong id="energy-value">0 / 0</strong></div>
@@ -26,8 +26,7 @@
         <button type="button" data-open="research">科研</button>
         <button type="button" data-open="network">网络</button>
         <button type="button" data-open="endgame">终局</button>
-        <button type="button" data-open="save">存档</button>
-        <button type="button" id="pause-button" aria-label="暂停游戏">暂停</button>
+        <button type="button" data-open="settings" aria-label="打开设置">⚙ 设置</button>
       </nav>
     </header>
 
@@ -36,8 +35,11 @@
     <main class="game-layout">
       <aside class="panel build-panel" id="build-panel" aria-label="建筑选择">
         <div class="panel-heading">
-          <div><span class="eyebrow">CONSTRUCTION</span><h2>建造节点</h2></div>
+          <div><span class="eyebrow">建造</span><h2>建造节点</h2></div>
           <span class="key-hint">B</span>
+        </div>
+        <div class="build-mode-row">
+          <button type="button" id="dismantle-toggle" data-mode="dismantle" class="danger">拆除模式 · 返还 35% 材料</button>
         </div>
         <div class="category-tabs" id="category-tabs" role="tablist" aria-label="建筑类别"></div>
         <div class="build-list" id="build-list"></div>
@@ -47,26 +49,14 @@
       <section class="map-stage" aria-label="地图场景">
         <div class="map-heading">
           <div>
-            <span class="eyebrow" id="map-english">ASHEN PLAIN / SECTOR 01</span>
+            <span class="eyebrow" id="map-english">Ash Plains / Sector 01</span>
             <h1 id="map-name">灰烬平原</h1>
           </div>
           <button type="button" data-open="maps" class="map-switch">切换区域 <span id="map-count">1 / 6</span></button>
         </div>
         <div class="map-description" id="map-description"></div>
-        <div class="map-toolbar" aria-label="地图控制">
-          <div class="zoom-controls" aria-label="整数缩放">
-            <span>缩放</span>
-            <button type="button" data-zoom="1" class="active">1×</button>
-            <button type="button" data-zoom="2">2×</button>
-            <button type="button" data-zoom="3">3×</button>
-          </div>
-          <div class="speed-controls" aria-label="游戏速度">
-            <span>流速</span>
-            <button type="button" data-speed="1" class="active">1×</button>
-            <button type="button" data-speed="2">2×</button>
-            <button type="button" data-speed="4">4×</button>
-          </div>
-          <span class="map-status" id="map-status">网络待命</span>
+        <div class="map-toolbar" aria-label="地图状态">
+          <span class="map-status" id="map-status">没有采集节点，资源不会增长</span>
         </div>
         <div class="canvas-scroll" id="canvas-scroll">
           <canvas id="game-canvas" width="576" height="576" tabindex="0" aria-label="24 乘 24 格城市地图。选择左侧建筑后点击格子建造。"></canvas>
@@ -78,7 +68,7 @@
 
       <aside class="panel log-panel" id="log-panel" aria-label="系统日志">
         <div class="panel-heading">
-          <div><span class="eyebrow">ARCHIVE TERMINAL</span><h2>值守日志</h2></div>
+          <div><span class="eyebrow">日志</span><h2>值守日志</h2></div>
           <button type="button" id="log-toggle" aria-expanded="true" aria-label="折叠日志">−</button>
         </div>
         <div class="log-stream" id="log-stream" role="log" aria-live="polite"></div>
@@ -100,14 +90,17 @@
   </div>
 
   <dialog id="game-dialog" class="game-dialog">
-    <div class="dialog-header"><div><span class="eyebrow" id="dialog-eyebrow">SYSTEM</span><h2 id="dialog-title">系统</h2></div><button type="button" id="dialog-close" aria-label="关闭弹窗">×</button></div>
+    <div class="dialog-header"><div><span class="eyebrow" id="dialog-eyebrow">系统</span><h2 id="dialog-title">系统</h2></div><button type="button" id="dialog-close" aria-label="关闭弹窗">×</button></div>
     <div class="dialog-content" id="dialog-content"></div>
   </dialog>
 
-  <dialog id="offline-dialog" class="game-dialog offline-dialog">
-    <div class="dialog-header"><div><span class="eyebrow">UNSUPPORTED TEMPORAL EVENT</span><h2>欢迎回来，管理员</h2></div></div>
+  <dialog id="offline-dialog" class="game-dialog offline-dialog" aria-labelledby="offline-title">
+    <div class="dialog-header"><div><span class="eyebrow">本地存档</span><h2 id="offline-title">继续上次的存档？</h2></div></div>
     <div class="dialog-content" id="offline-content"></div>
-    <button type="button" id="offline-close" class="primary wide">接收离线收益</button>
+    <div class="dialog-actions">
+      <button type="button" id="offline-continue" class="primary wide">继续本局</button>
+      <button type="button" id="offline-new" class="danger wide">开始新游戏</button>
+    </div>
   </dialog>
 
   <section id="ending-screen" class="ending-screen" hidden aria-live="polite"></section>

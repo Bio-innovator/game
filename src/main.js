@@ -1,14 +1,23 @@
-import { apply, createInitialState, RESOURCE_NAMES } from "./core/state.js";
-import { createGameLoop, settleOffline } from "./core/tick.js";
-import { formatNumber } from "./core/decimal.js";
+import { apply, createInitialState } from "./core/state.js";
+import { createGameLoop } from "./core/tick.js";
+import { gameEvents } from "./core/events.js";
 import { GridRenderer } from "./render/grid.js";
 import { HUD } from "./render/hud.js";
-import { loadGame, saveGame } from "./save/storage.js";
+import { Tutorial } from "./render/tutorial.js";
+import { clearSave, loadGame, saveGame } from "./save/storage.js";
 
 const canvas = document.querySelector("#game-canvas");
 const loaded = loadGame();
 const state = loaded?.state ?? createInitialState();
-const offlineResult = loaded ? settleOffline(state, loaded.offlineSeconds) : null;
+let suppressExitSave = false;
+
+function reloadFresh() {
+  suppressExitSave = true;
+  clearSave();
+  location.reload();
+}
+
+gameEvents.on("restart", reloadFresh);
 
 function replaceState(nextState) {
   for (const key of Object.keys(state)) delete state[key];
@@ -22,7 +31,7 @@ function dispatch(action) {
     return { ok: true, message: "存档已导入，网络状态恢复。" };
   }
   const response = apply(state, action);
-  if (response.ok && ["BUILD", "RESEARCH", "EXPAND", "ROUTE_ADD", "ROUTE_UPGRADE", "ROCKET_START", "ROCKET_FUEL", "ROCKET_LAUNCH", "ENDING", "NEW_GAME_PLUS"].includes(action.type)) {
+  if (response.ok && ["BUILD", "DISMANTLE", "UNDERGROUND", "SET_SETTING", "RESEARCH", "EXPAND", "ROUTE_ADD", "ROUTE_UPGRADE", "ROUTE_RECONNECT", "ROCKET_START", "ROCKET_FUEL", "ROCKET_LAUNCH", "ENDING", "NEW_GAME_PLUS"].includes(action.type)) {
     saveGame(state);
   }
   return response;
@@ -30,17 +39,12 @@ function dispatch(action) {
 
 const grid = new GridRenderer(canvas, (index) => hud.selectCell(index));
 const hud = new HUD(state, dispatch);
+const tutorial = new Tutorial();
 hud.attachGrid(grid);
+hud.setTutorial(tutorial);
+grid.render(state);
 
 if (state.ending) hud.showEnding();
-
-if (offlineResult) {
-  const mapRows = Object.entries(offlineResult.gains).flatMap(([mapId, resources]) => Object.entries(resources).map(([resource, amount]) => `<div><span>${mapId.toUpperCase()} · ${RESOURCE_NAMES[resource] ?? resource}</span><strong>+${formatNumber(amount)}</strong></div>`)).join("");
-  document.querySelector("#offline-content").innerHTML = `<p class="dialog-intro">运算中心在低功耗状态下运行了 <strong class="text-energy">${Math.floor(offlineResult.seconds / 60)} 分钟</strong>${offlineResult.capped ? "（按 8 小时上限结算）" : ""}。环境压力计时已重置，离线期间不追溯灾变损伤。</p><div class="offline-gains">${mapRows || `<div><span>资源变化</span><strong>无净产出</strong></div>`}<div><span>全局数据</span><strong>+${formatNumber(offlineResult.data)}</strong></div></div>`;
-  const offlineDialog = document.querySelector("#offline-dialog");
-  document.querySelector("#offline-close").addEventListener("click", () => offlineDialog.close());
-  offlineDialog.showModal();
-}
 
 const loop = createGameLoop({
   state,
@@ -48,11 +52,39 @@ const loop = createGameLoop({
   onRender: (currentState) => grid.render(currentState),
   onSave: (currentState) => saveGame(currentState),
 });
-loop.start();
+let loopStarted = false;
+function startGame() {
+  if (!loopStarted) {
+    loopStarted = true;
+    loop.start();
+  }
+  tutorial.start();
+}
 
-window.addEventListener("beforeunload", () => saveGame(state));
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") saveGame(state);
+if (loaded) {
+  const buildingCount = Object.values(state.maps).reduce((total, map) => total + map.buildings.filter(Boolean).length, 0);
+  document.querySelector("#offline-content").innerHTML = `<p class="dialog-intro">上次记录：周目 ${state.cycle} · DAY ${state.day} · 建筑 ${buildingCount} 座。离线期间游戏不会运转。</p>`;
+  const offlineDialog = document.querySelector("#offline-dialog");
+  offlineDialog.addEventListener("cancel", (event) => event.preventDefault());
+  document.querySelector("#offline-continue").addEventListener("click", () => {
+    offlineDialog.close();
+    startGame();
+  });
+  document.querySelector("#offline-new").addEventListener("click", () => {
+    if (!window.confirm("这会清除当前进度（周目、地图、科技、存档）。确定吗？")) return;
+    reloadFresh();
+  });
+  offlineDialog.showModal();
+} else {
+  startGame();
+}
+
+window.addEventListener("beforeunload", () => {
+  if (!suppressExitSave) saveGame(state);
 });
-
-window.addEventListener("pagehide", () => saveGame(state));
+document.addEventListener("visibilitychange", () => {
+  if (!suppressExitSave && document.visibilityState === "hidden") saveGame(state);
+});
+window.addEventListener("pagehide", () => {
+  if (!suppressExitSave) saveGame(state);
+});

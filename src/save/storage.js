@@ -119,6 +119,9 @@ export function migrateAndValidate(payload) {
       zoom: [1, 2, 3].includes(source.settings?.zoom) ? source.settings.zoom : 1,
       speed: [1, 2, 4].includes(source.settings?.speed) ? source.settings.speed : 1,
       paused: Boolean(source.settings?.paused),
+      theme: ["dark", "light"].includes(source.settings?.theme) ? source.settings.theme : base.settings.theme,
+      fontSize: [13, 15, 17].includes(source.settings?.fontSize) ? source.settings.fontSize : 13,
+      sound: Boolean(source.settings?.sound),
     },
     logs: Array.isArray(source.logs) ? source.logs.slice(0, 80).map((entry) => ({ day: Math.max(1, Math.floor(finite(entry.day, 1))), text: String(entry.text), tone: ["normal", "alert", "good"].includes(entry.tone) ? entry.tone : "normal" })) : base.logs,
     savedAt: finite(payload.savedAt, Date.now()),
@@ -143,8 +146,7 @@ export function loadGame(storage = globalThis.localStorage) {
   if (!raw) return null;
   try {
     const payload = JSON.parse(raw);
-    const state = migrateAndValidate(payload);
-    return { state, offlineSeconds: Math.max(0, (Date.now() - finite(payload.savedAt, Date.now())) / 1000) };
+    return { state: migrateAndValidate(payload) };
   } catch {
     return null;
   }
@@ -152,4 +154,48 @@ export function loadGame(storage = globalThis.localStorage) {
 
 export function clearSave(storage = globalThis.localStorage) {
   storage?.removeItem(SAVE_KEY);
+}
+
+export const SAVE_BACKUP_PREFIX = "hdc-save-backup-";
+
+export function writeSaveBackup(state, storage = globalThis.localStorage) {
+  if (!storage) return null;
+  let timestamp = Date.now();
+  let key = `${SAVE_BACKUP_PREFIX}${timestamp}`;
+  try {
+    while (storage.getItem(key)) {
+      timestamp += 1;
+      key = `${SAVE_BACKUP_PREFIX}${timestamp}`;
+    }
+    storage.setItem(key, JSON.stringify(createSavePayload(state, timestamp)));
+    return key;
+  } catch {
+    return null;
+  }
+}
+
+export function getLatestSaveBackup(storage = globalThis.localStorage) {
+  if (!storage) return null;
+  const keys = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key?.startsWith(SAVE_BACKUP_PREFIX) && Number.isFinite(Number(key.slice(SAVE_BACKUP_PREFIX.length)))) keys.push(key);
+  }
+  keys.sort((left, right) => Number(right.slice(SAVE_BACKUP_PREFIX.length)) - Number(left.slice(SAVE_BACKUP_PREFIX.length)));
+  for (const key of keys) {
+    try {
+      const payload = JSON.parse(storage.getItem(key));
+      migrateAndValidate(payload);
+      return { key, payload };
+    } catch {
+      // Ignore malformed backups and continue to the next valid snapshot.
+    }
+  }
+  return null;
+}
+
+export function readSaveBackup(key, storage = globalThis.localStorage) {
+  if (!storage || !key?.startsWith(SAVE_BACKUP_PREFIX)) throw new Error("备份不存在。");
+  const payload = JSON.parse(storage.getItem(key));
+  return migrateAndValidate(payload);
 }
