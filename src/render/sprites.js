@@ -1,10 +1,25 @@
-import { PALETTE } from "../../assets/palette.js";
+import { getPalette } from "../../assets/palette.js";
 import { TERRAIN_SPRITES } from "../../assets/sprites/terrain.js";
 import { BUILDING_SPRITES, CORE_SPRITE, RUBBLE_SPRITE } from "../../assets/sprites/buildings.js";
 import { EFFECT_SPRITES } from "../../assets/sprites/effects.js";
 
 const cache = new Map();
 const urlCache = new Map();
+let spriteTheme = "dark";
+
+export function setSpriteTheme(theme) {
+  if (theme !== "dark" && theme !== "light") {
+    throw new RangeError(`Unknown sprite theme: ${theme}`);
+  }
+  if (spriteTheme === theme) return;
+  spriteTheme = theme;
+  cache.clear();
+  urlCache.clear();
+}
+
+export function getSpriteTheme() {
+  return spriteTheme;
+}
 
 export function matrixToCanvas(matrix) {
   const canvas = document.createElement("canvas");
@@ -12,9 +27,10 @@ export function matrixToCanvas(matrix) {
   canvas.height = matrix.length;
   const context = canvas.getContext("2d", { alpha: true });
   context.imageSmoothingEnabled = false;
+  const palette = getPalette(spriteTheme);
   for (let y = 0; y < matrix.length; y += 1) {
     for (let x = 0; x < matrix[y].length; x += 1) {
-      const color = PALETTE[matrix[y][x]];
+      const color = palette[matrix[y][x]];
       if (!color) continue;
       context.fillStyle = color;
       context.fillRect(x, y, 1, 1);

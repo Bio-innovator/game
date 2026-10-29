@@ -2,7 +2,15 @@ import { MAP_SIZE, TILE_SIZE } from "../data/maps.js";
 import { BUILDING_BY_ID } from "../data/buildings.js";
 import { CORE_INDEX, isOperational } from "../core/state.js";
 import { gameEvents } from "../core/events.js";
-import { getBuildingSprite, getCoreSprite, getRubbleSprite, getTerrainSprite } from "./sprites.js";
+import { getPalette } from "../../assets/palette.js";
+import {
+  getBuildingSprite,
+  getCoreSprite,
+  getRubbleSprite,
+  getSpriteTheme,
+  getTerrainSprite,
+  setSpriteTheme,
+} from "./sprites.js";
 import { drawAdjacencyNetwork, drawRoutes } from "./routes.js";
 import { FrameEffects } from "./fx.js";
 
@@ -16,6 +24,8 @@ export class GridRenderer {
     this.frame = 0;
     this.selectedIndex = null;
     this.terrainCache = new Map();
+    this.theme = getSpriteTheme();
+    this.palette = getPalette(this.theme);
     this.effects = new FrameEffects();
     this.onCell = onCell;
     canvas.addEventListener("pointerdown", (event) => {
@@ -49,6 +59,16 @@ export class GridRenderer {
     return this.terrainCache.get(signature);
   }
 
+  setTheme(theme) {
+    if (theme !== "dark" && theme !== "light") {
+      throw new RangeError(`Unknown grid theme: ${theme}`);
+    }
+    this.theme = theme;
+    this.palette = getPalette(theme);
+    setSpriteTheme(theme);
+    this.terrainCache.clear();
+  }
+
   setZoom(zoom) {
     const size = GRID_SIZE * zoom;
     this.canvas.style.width = `${size}px`;
@@ -59,6 +79,7 @@ export class GridRenderer {
     const x = (index % MAP_SIZE) * TILE_SIZE;
     const y = Math.floor(index / MAP_SIZE) * TILE_SIZE;
     const sprite = getBuildingSprite(building.id);
+    const palette = this.palette;
     const progress = building.buildTotal > 0 ? 1 - building.buildRemaining / building.buildTotal : 1;
     context.save();
     if (progress < 1) {
@@ -70,7 +91,7 @@ export class GridRenderer {
       context.clip();
       context.drawImage(sprite, x + 4, y + 4);
       context.restore();
-      context.fillStyle = "#3FD0C9";
+      context.fillStyle = palette.g;
       context.fillRect(x + 2, y + 20 - Math.floor(16 * progress), 2, Math.max(1, Math.floor(16 * progress)));
     } else {
       context.drawImage(sprite, x + 4, y + 4);
@@ -78,37 +99,43 @@ export class GridRenderer {
     }
 
     if (building.underground) {
-      context.fillStyle = "rgba(16, 18, 22, 0.55)";
+      context.save();
+      context.globalAlpha = 0.55;
+      context.fillStyle = palette['0'];
       context.fillRect(x + 2, y + 15, 20, 7);
-      context.fillStyle = "#3FD0C9";
+      context.restore();
+      context.fillStyle = palette.g;
       context.fillRect(x + 4, y + 19, 16, 1);
     }
     if (map.energy.disabled.includes(index) && this.frame % 40 < 20) {
-      context.fillStyle = "#E0533D";
+      context.fillStyle = palette.j;
       context.fillRect(x + 3, y + 3, 18, 2);
       context.fillRect(x + 3, y + 3, 2, 18);
     }
     if (building.hp < building.maxHp) {
-      context.fillStyle = "#1E1E22";
+      context.fillStyle = palette['1'];
       context.fillRect(x + 3, y + 22, 18, 2);
-      context.fillStyle = building.hp / building.maxHp > 0.35 ? "#3FD0C9" : "#E0533D";
+      context.fillStyle = building.hp / building.maxHp > 0.35 ? palette.g : palette.j;
       context.fillRect(x + 3, y + 22, Math.ceil(18 * building.hp / building.maxHp), 1);
     }
     if (building.count > 1) {
-      context.fillStyle = "#101216";
+      context.fillStyle = palette['0'];
       context.fillRect(x + 16, y + 2, 7, 7);
-      context.fillStyle = "#D4D0C4";
+      context.fillStyle = palette['7'];
       context.font = "7px monospace";
       context.textBaseline = "top";
       context.fillText(String(Math.min(9, building.count)), x + 18, y + 2);
     }
     if (isOperational(building) && BUILDING_BY_ID[building.id].category === "energy" && this.frame % 50 < 25) {
-      context.fillStyle = "#A0EEE5";
+      context.fillStyle = palette.i;
       context.fillRect(x + 11, y + 1, 2, 2);
     }
   }
 
   render(state) {
+    const theme = state.settings?.theme ?? "dark";
+    if (theme !== this.theme) this.setTheme(theme);
+    const palette = this.palette;
     this.frame += 1;
     this.effects.update(state, this.frame);
     const context = this.context;
@@ -116,7 +143,7 @@ export class GridRenderer {
     const shake = this.effects.getShake();
     context.save();
     context.imageSmoothingEnabled = false;
-    context.fillStyle = "#101216";
+    context.fillStyle = palette['0'];
     context.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
     context.translate(shake.x, shake.y);
     context.drawImage(this.getTerrain(state), 0, 0);
@@ -127,7 +154,7 @@ export class GridRenderer {
       const coreY = Math.floor(CORE_INDEX / MAP_SIZE) * TILE_SIZE;
       context.drawImage(getCoreSprite(), coreX + 4, coreY + 4);
       if (this.frame % 60 < 30) {
-        context.fillStyle = "#3FD0C9";
+        context.fillStyle = palette.g;
         context.fillRect(coreX + 11, coreY + 1, 2, 2);
       }
     }
@@ -141,7 +168,7 @@ export class GridRenderer {
     if (this.selectedIndex !== null) {
       const x = (this.selectedIndex % MAP_SIZE) * TILE_SIZE;
       const y = Math.floor(this.selectedIndex / MAP_SIZE) * TILE_SIZE;
-      context.fillStyle = "#E7E5DC";
+      context.fillStyle = this.theme === "light" ? palette['1'] : palette['7'];
       context.fillRect(x, y, 7, 1);
       context.fillRect(x, y, 1, 7);
       context.fillRect(x + 17, y, 7, 1);
@@ -152,8 +179,11 @@ export class GridRenderer {
       context.fillRect(x + 23, y + 17, 1, 7);
     }
     if (map.energy.demand > map.energy.supply) {
-      context.fillStyle = "rgba(8, 10, 13, 0.18)";
+      context.save();
+      context.globalAlpha = 0.18;
+      context.fillStyle = palette['0'];
       context.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
+      context.restore();
     }
     this.effects.draw(context, state, this.frame);
     context.restore();

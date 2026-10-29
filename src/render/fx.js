@@ -1,4 +1,4 @@
-import { RESOURCE_COLORS } from "../../assets/palette.js";
+import { getPalette, getResourceColors } from "../../assets/palette.js";
 import { BUILDING_BY_ID } from "../data/buildings.js";
 import { MAP_SIZE, TILE_SIZE } from "../data/maps.js";
 import { isOperational } from "../core/state.js";
@@ -38,6 +38,7 @@ export class FrameEffects {
       else this.affected.set(key, life - 1);
     }
     const map = state.maps[state.currentMap];
+    const resourceColors = getResourceColors(state.settings?.theme);
     for (let index = 0; index < map.buildings.length; index += 1) {
       const building = map.buildings[index];
       if (!isOperational(building) || (frame + index * 7) % 48 !== 0) continue;
@@ -48,7 +49,7 @@ export class FrameEffects {
           x: (index % MAP_SIZE) * TILE_SIZE + 8 + (index % 3) * 3,
           y: Math.floor(index / MAP_SIZE) * TILE_SIZE + 5,
           life: 24,
-          color: RESOURCE_COLORS[resource] ?? RESOURCE_COLORS.energy,
+          color: resourceColors[resource] ?? resourceColors.energy,
         });
       }
     }
@@ -59,14 +60,17 @@ export class FrameEffects {
   }
 
   draw(context, state, frame) {
+    const palette = getPalette(state.settings?.theme);
     for (const [key, life] of this.affected) {
       const [mapId, rawIndex] = key.split(":");
       if (mapId !== state.currentMap || life % 4 > 1) continue;
       const index = Number(rawIndex);
-      context.fillStyle = "rgba(224, 83, 61, 0.5)";
+      context.save();
+      context.globalAlpha = 0.5;
+      context.fillStyle = palette.j;
       context.fillRect((index % MAP_SIZE) * TILE_SIZE, Math.floor(index / MAP_SIZE) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      context.restore();
     }
-    context.fillStyle = "#fff";
     for (const particle of this.particles) {
       context.fillStyle = particle.color;
       context.fillRect(particle.x, particle.y - Math.floor((24 - particle.life) / 3), 2, 2);
@@ -75,16 +79,22 @@ export class FrameEffects {
       const rocket = getEffectSprite("rocket");
       const progress = Math.min(1, state.rocket.progress / 8);
       context.drawImage(rocket, 264, Math.round(420 - progress * 500), 48, 48);
-      context.fillStyle = progress % 0.2 < 0.1 ? "#F2A65A" : "#E0533D";
+      context.fillStyle = progress % 0.2 < 0.1 ? palette.l : palette.j;
       context.fillRect(286, Math.round(470 - progress * 500), 4, 18);
     }
     if (state.day >= state.nextPulseDay - 1 && state.rocket.stage !== "launching" && frame % 60 < 30) {
-      context.fillStyle = "rgba(224, 83, 61, 0.09)";
+      context.save();
+      context.globalAlpha = 0.09;
+      context.fillStyle = palette.j;
       context.fillRect(0, 0, 576, 576);
+      context.restore();
     }
     if (this.flashFrames > 0) {
-      context.fillStyle = "rgba(224, 83, 61, 0.72)";
+      context.save();
+      context.globalAlpha = 0.72;
+      context.fillStyle = palette.j;
       context.fillRect(0, 0, 576, 576);
+      context.restore();
     }
   }
 }
