@@ -1,0 +1,15 @@
+export const BALANCE = {
+  scrapyardSteelPerSecond: 3,
+  smelterSteelPerMetal: 2.5,
+  smelterMetalPerSecond: 0.8,
+  solarSteelCost: 8,
+  bioreactorSteelCost: 30,
+  bioreactorBiomassPerSecond: 1.25,
+  stormInterval: [180, 300],
+  stormDuration: [20, 30],
+  pulseDamage: [0.5, 0.7],
+  maxDepth: 3,
+  upgradeProductionStep: 0.6,
+  upgradeCostStep: 1.6,
+  upgradeRiskStep: 2,
+};
