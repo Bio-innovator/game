@@ -1,6 +1,6 @@
 import { gameEvents } from "../core/events.js";
 
-export const TUTORIAL_KEY = "hdc-tutorial-v3";
+export const TUTORIAL_KEY = "hdc-tutorial-v4";
 export const LEGACY_TUTORIAL_KEY = "hdc-tutorial-done";
 
 const REQUIRED_STEPS = [
@@ -44,17 +44,6 @@ const REQUIRED_STEPS = [
   },
 ];
 
-export const ADVANCED_STEPS = [
-  { id: "smelter", name: "建立加工链", detail: "废钢达到 60，建造冶炼厂，把废钢变成金属。", test: (_p, s) => s.maps[s.currentMap]?.buildings.some((building) => building?.id === "smelter") },
-  { id: "blackout", name: "第一次断电", detail: "断电不是停机，而是全图按供给比例降产。", test: (_p, s) => s.maps[s.currentMap]?.energy.demand > s.maps[s.currentMap]?.energy.supply },
-  { id: "research", name: "启动科研", detail: "数据达到 10 后，在研究所解锁科技，先研究深钻。", test: (_p, s) => s.data >= 10 },
-  { id: "upgrade", name: "第一次升级", detail: "同格升级产出 ×1.6，但灾变受损风险同步翻倍。", event: "upgrade" },
-  { id: "dismantle", name: "第一次拆除", detail: "拆除返还 35% 材料，不会全部损失。", event: "dismantle" },
-  { id: "pulse", name: "脉冲预警", detail: "脉冲抵达前一天，加固外露设施或进行地下化。", test: (_p, s) => s.nextPulseDay - s.day <= 1 },
-  { id: "trade", name: "跨图联网", detail: "开拓第二张地图，用中转站和商路共享资源。", test: (_p, s) => s.unlockedMaps.length >= 2 },
-  { id: "save", name: "保存与重开", detail: "设置中可下载存档、调整主题、重看教程或重新开始。", auto: true },
-];
-
 function freshProgress() {
   return {
     stage: "required",
@@ -75,15 +64,10 @@ export class Tutorial {
     this.overlay = null;
     this.spotlight = null;
     this.card = null;
-    this.questPanel = null;
-    this.questSignature = "";
     this.positionFrame = 0;
     this.updatePosition = () => this.schedulePosition();
     window.addEventListener("resize", this.updatePosition);
     window.addEventListener("scroll", this.updatePosition, true);
-    gameEvents.on("upgrade", () => this.completeAdvanced("upgrade"));
-    gameEvents.on("dismantle", () => this.completeAdvanced("dismantle"));
-    this.renderQuestPanel();
   }
 
   loadProgress() {
@@ -111,11 +95,9 @@ export class Tutorial {
       this.progress.requiredDone = [];
       this.progress.skipped = false;
       this.progress.panelOpen = false;
-      if (this.questPanel) this.questPanel.hidden = true;
       this.saveProgress();
     }
     if (!force && (this.progress.stage !== "required" || this.progress.skipped)) {
-      this.renderQuestPanel();
       return false;
     }
     if (this.overlay) return true;
@@ -183,21 +165,16 @@ export class Tutorial {
   finishRequired() {
     this.progress.stage = "advanced";
     this.progress.requiredIndex = REQUIRED_STEPS.length;
-    this.progress.panelOpen = true;
-    this.progress.advancedRevealed = [...new Set([...this.progress.advancedRevealed, "save"])];
     this.saveProgress();
     try { this.storage.setItem(LEGACY_TUTORIAL_KEY, "1"); } catch { /* Keep legacy flag best-effort. */ }
     this.destroyOverlay();
-    this.renderQuestPanel();
   }
 
   skip() {
     this.progress.skipped = true;
     this.progress.stage = "advanced";
-    this.progress.panelOpen = true;
     this.saveProgress();
     this.destroyOverlay();
-    this.renderQuestPanel();
   }
 
   destroyOverlay() {
@@ -280,16 +257,9 @@ export class Tutorial {
   refresh(state = this.state) {
     this.state = state;
     for (const id of ["solar", "scrapyard"]) {
-      if (state.maps[state.currentMap]?.buildings.some((building) => building?.id === id)) {
-        this.markRequired(id);
-      }
+      if (state.maps[state.currentMap]?.buildings.some((building) => building?.id === id)) this.markRequired(id);
     }
     if (this.overlay) this.updateNextButton();
-    if (this.progress.stage !== "advanced") return;
-    for (const step of ADVANCED_STEPS) {
-      if (step.test?.(this.progress, state)) this.completeAdvanced(step.id);
-    }
-    this.renderQuestPanel();
   }
 
   markRequired(id) {
@@ -298,50 +268,4 @@ export class Tutorial {
     this.saveProgress();
   }
 
-  markEvent(eventName) {
-    const step = ADVANCED_STEPS.find((item) => item.event === eventName);
-    if (step) this.completeAdvanced(step.id);
-  }
-
-  completeAdvanced(id) {
-    if (this.progress.stage !== "advanced") return;
-    const step = ADVANCED_STEPS.find((item) => item.id === id);
-    if (!step) return;
-    const changed = !this.progress.advancedDone.includes(id);
-    this.progress.advancedDone = [...new Set([...this.progress.advancedDone, id])];
-    this.progress.advancedRevealed = [...new Set([...this.progress.advancedRevealed, id])];
-    this.saveProgress();
-    this.renderQuestPanel();
-    if (changed) gameEvents.emit("tutorialTask", { id, name: step.name });
-  }
-
-  markSettingsOpened() {
-    this.completeAdvanced("save");
-  }
-
-  renderQuestPanel() {
-    if (this.progress.stage !== "advanced") return;
-    if (!this.questPanel) {
-      this.questPanel = document.createElement("section");
-      this.questPanel.id = "tutorial-quests";
-      this.questPanel.setAttribute("aria-label", "进阶指引");
-      document.body.append(this.questPanel);
-    }
-    this.questPanel.hidden = false;
-    const signature = `${this.progress.panelOpen}:${this.progress.advancedDone.join(",")}:${this.progress.advancedRevealed.join(",")}`;
-    if (signature === this.questSignature) return;
-    this.questSignature = signature;
-    const done = this.progress.advancedDone.length;
-    const rows = ADVANCED_STEPS.map((step, index) => {
-      const completed = this.progress.advancedDone.includes(step.id);
-      const revealed = completed || this.progress.advancedRevealed.includes(step.id);
-      return `<li class="quest-row ${completed ? "done" : ""} ${revealed ? "revealed" : "locked"}"><span class="quest-mark">${completed ? "✓" : revealed ? "→" : "?"}</span><span><strong>${index + 5}. ${step.name}</strong><small>${revealed ? step.detail : "达到条件后显示指引"}</small></span></li>`;
-    }).join("");
-    this.questPanel.innerHTML = `<button type="button" class="quest-toggle" aria-expanded="${this.progress.panelOpen}"><span>进阶指引 ${done} / ${ADVANCED_STEPS.length}</span><strong>${this.progress.panelOpen ? "−" : "+"}</strong></button>${this.progress.panelOpen ? `<ol class="quest-list">${rows}</ol>` : ""}`;
-    this.questPanel.querySelector(".quest-toggle").addEventListener("click", () => {
-      this.progress.panelOpen = !this.progress.panelOpen;
-      this.saveProgress();
-      this.renderQuestPanel();
-    });
-  }
 }
