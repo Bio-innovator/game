@@ -38,9 +38,6 @@
           <div><span class="eyebrow">建造</span><h2>建造节点</h2></div>
           <span class="key-hint">B</span>
         </div>
-        <div class="build-mode-row">
-          <button type="button" id="dismantle-toggle" data-mode="dismantle" class="danger">拆除模式 · 返还 35% 材料</button>
-        </div>
         <div class="category-tabs" id="category-tabs" role="tablist" aria-label="建筑类别"></div>
         <div class="build-list" id="build-list"></div>
         <div class="build-help">选择蓝图，再点击地图空格。点击已建同类节点可继续堆叠。</div>
@@ -52,7 +49,14 @@
             <span class="eyebrow" id="map-english">Ash Plains / Sector 01</span>
             <h1 id="map-name">灰烬平原</h1>
           </div>
-          <button type="button" data-open="maps" class="map-switch">切换区域 <span id="map-count">1 / 6</span></button>
+          <div class="map-heading-actions">
+            <div class="layer-controls" aria-label="地下层切换">
+              <button type="button" data-layer-step="-1" aria-label="返回上一层">▲</button>
+              <span id="layer-label">地表</span>
+              <button type="button" data-layer-step="1" aria-label="进入下一层">▼</button>
+            </div>
+            <button type="button" data-open="maps" class="map-switch">切换区域 <span id="map-count">1 / 6</span></button>
+          </div>
         </div>
         <div class="map-description" id="map-description"></div>
         <div class="map-toolbar" aria-label="地图状态">
