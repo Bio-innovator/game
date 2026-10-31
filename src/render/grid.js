@@ -6,7 +6,6 @@ import { getPalette } from "../../assets/palette.js";
 import {
   getBuildingSprite,
   getCoreSprite,
-  getFloorSprite,
   getRubbleSprite,
   getSpriteTheme,
   getTerrainSprite,
@@ -266,17 +265,28 @@ export class GridRenderer {
     context.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
     context.translate(shake.x, shake.y);
     context.drawImage(this.getTerrain(state), 0, 0);
-    const floor = getFloorSprite(state.currentMap);
+    // 地基：已成建设施下方压暗 18%，与荒地拉开层次，又不会喧宾夺主。
+    context.save();
+    context.globalAlpha = 0.18;
+    context.fillStyle = palette["0"];
+    for (let index = 0; index < map.buildings.length; index += 1) {
+      const building = map.buildings[index];
+      if (!building || building.anchor || building.buildRemaining > 0) continue;
+      const size = building.size ?? { w: 1, h: 1 };
+      context.fillRect((index % MAP_SIZE) * TILE_SIZE, Math.floor(index / MAP_SIZE) * TILE_SIZE, size.w * TILE_SIZE, size.h * TILE_SIZE);
+    }
+    context.globalAlpha = 0.34;
+    context.fillStyle = palette["0"];
     for (let index = 0; index < map.buildings.length; index += 1) {
       const building = map.buildings[index];
       if (!building || building.anchor || building.buildRemaining > 0) continue;
       const size = building.size ?? { w: 1, h: 1 };
       const x = (index % MAP_SIZE) * TILE_SIZE;
       const y = Math.floor(index / MAP_SIZE) * TILE_SIZE;
-      for (let dy = 0; dy < size.h; dy += 1) {
-        for (let dx = 0; dx < size.w; dx += 1) context.drawImage(floor, x + dx * TILE_SIZE, y + dy * TILE_SIZE);
-      }
+      context.fillRect(x, y, size.w * TILE_SIZE, 1);
+      context.fillRect(x, y, 1, size.h * TILE_SIZE);
     }
+    context.restore();
     drawAdjacencyNetwork(context, state);
 
     if (state.currentMap === "ash") {
