@@ -1,6 +1,6 @@
 import { BUILDING_BY_ID } from "../data/buildings.js";
 import { MAP_BY_ID } from "../data/maps.js";
-import { getTechEffectTotal, getTechMultiplier, isOperational } from "../core/state.js";
+import { getAllAnchors, getTechEffectTotal, getTechMultiplier, isOperational } from "../core/state.js";
 
 export const ROUTE_LEVELS = [
   { id: "convoy", name: "车队", capacity: 8, delay: 8, loss: 0.08 },
@@ -12,7 +12,7 @@ export function getRouteParameters(state, route) {
   const base = ROUTE_LEVELS[route.level];
   let elevatorMultiplier = 1;
   for (const mapId of [route.a, route.b]) {
-    const hasElevator = state.maps[mapId].buildings.some((building) => isOperational(building) && BUILDING_BY_ID[building.id].ability?.capacityMultiplier);
+    const hasElevator = getAllAnchors(state.maps[mapId]).some((building) => isOperational(building) && BUILDING_BY_ID[building.id].ability?.capacityMultiplier);
     if (hasElevator) elevatorMultiplier *= BUILDING_BY_ID.elevator.ability.capacityMultiplier;
   }
   const radiationLoss = [route.a, route.b].reduce((loss, mapId) => loss + (MAP_BY_ID[mapId].hazard?.logisticsLoss ?? (mapId === "orbit" ? 0.08 : 0)), 0);

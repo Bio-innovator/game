@@ -5,8 +5,10 @@ import { TECH_BY_ID } from "../src/data/techs.js";
 import { formatNumber } from "../src/core/decimal.js";
 import {
   apply,
+  canBuildAt,
   createInitialState,
   findCompletedBuilding,
+  getBuildCost,
   getQuota,
   hasTech,
   isOperational,
@@ -18,20 +20,31 @@ import { migrateAndValidate } from "../src/save/storage.js";
 
 const MAX_STEPS = 22_000;
 
-function emptyIndex(state, mapId) {
-  const map = state.maps[mapId];
-  for (let index = 0; index < map.buildings.length; index += 1) {
-    if (mapId === "ash" && index === 300) continue;
-    if (!map.buildings[index]) return index;
+function tryBuild(state, mapId, buildingId, empties = emptyCells(state, mapId)) {
+  if (!canAfford(state, mapId, buildingId)) return false;
+  for (const index of empties) {
+    if (!canBuildAt(state, mapId, index, buildingId).ok) continue;
+    const response = apply(state, { type: "BUILD", mapId, index, buildingId });
+    if (response.ok) return true;
   }
-  return -1;
+  return false;
 }
 
-function tryBuild(state, mapId, buildingId) {
-  const index = emptyIndex(state, mapId);
-  if (index < 0) return false;
-  const response = apply(state, { type: "BUILD", mapId, index, buildingId });
-  return response.ok;
+function emptyCells(state, mapId) {
+  const map = state.maps[mapId];
+  const cells = [];
+  for (let index = 0; index < map.buildings.length; index += 1) {
+    if (map.buildings[index]) continue;
+    if (mapId === "ash" && index === 300) continue;
+    cells.push(index);
+  }
+  return cells;
+}
+
+function canAfford(state, mapId, buildingId) {
+  const map = state.maps[mapId];
+  const cost = getBuildCost(state, buildingId, mapId);
+  return Object.entries(cost).every(([resource, amount]) => (map.resources[resource] ?? 0) >= amount);
 }
 
 function countOperational(state, mapId, buildingId) {
@@ -51,13 +64,17 @@ function generatorFor(mapId) {
 function nextEmpty(state, mapId) {
   return emptyIndex(state, mapId);
 }
-
 function automateMap(state, mapId) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const map = state.maps[mapId];
+    const empties = emptyCells(state, mapId);
     let built = false;
+    const build = (buildingId) => {
+      if (built) return;
+      built = tryBuild(state, mapId, buildingId, empties);
+    };
     const prioritizeFuel = mapId === "ice" && hasTech(state, "tech_fuel") && map.resources.fuel < 650;
-    if (prioritizeFuel && countOperational(state, mapId, "assembler") > 1) {
+    if (prioritizeFuel && countOperational(state, mapId, "assembler") > 2 && map.resources.chem < 120) {
       const index = map.buildings.findIndex((building) => building?.id === "assembler" && isOperational(building));
       if (index >= 0) {
         apply(state, { type: "DISMANTLE", mapId, index });
@@ -66,30 +83,31 @@ function automateMap(state, mapId) {
     }
     const generator = generatorFor(mapId);
     const pendingGenerators = map.buildings.filter((building) => building?.id === generator && building.buildRemaining > 0).length;
-    if ((map.energy.supply === 0 || map.energy.demand > map.energy.supply) && pendingGenerators === 0) built = tryBuild(state, mapId, generator);
+    if ((map.energy.supply === 0 || map.energy.demand > map.energy.supply) && pendingGenerators === 0) build(generator);
     if (built) continue;
 
-    if (nextEmpty(state, mapId) < 0) return;
-    if (countOperational(state, mapId, "scrapyard") < 4) built = tryBuild(state, mapId, "scrapyard");
-    if (!built && countOperational(state, mapId, "mine") < 3) built = tryBuild(state, mapId, "mine");
-    if (!built && !mapHas(state, mapId, "hub") && hasTech(state, "tech_logistics") && mapId !== "moon") built = tryBuild(state, mapId, "hub");
-    if (!built && countOperational(state, mapId, "bioreactor") < 2) built = tryBuild(state, mapId, "bioreactor");
-    if (!built && countOperational(state, mapId, "chemical") < 2 && map.resources.metal >= 50) built = tryBuild(state, mapId, "chemical");
-    if (!built && !prioritizeFuel && countOperational(state, mapId, "assembler") < 3 && map.resources.metal >= 100) built = tryBuild(state, mapId, "assembler");
-    if (!built && !prioritizeFuel && countOperational(state, mapId, "lab") < 4) built = tryBuild(state, mapId, "lab");
-    if (!built && hasTech(state, "tech_refining") && countOperational(state, mapId, "smelter") < 2) built = tryBuild(state, mapId, "smelter");
-    if (!built && hasTech(state, "tech_deep_drill1") && countOperational(state, mapId, "drill") < 3) built = tryBuild(state, mapId, "drill");
-    if (!built && countOperational(state, mapId, "repair") < 1) built = tryBuild(state, mapId, "repair");
-    if (!built && Object.entries(map.resources).some(([resource, amount]) => amount > getStorageGuard(state, mapId, resource)) && countOperational(state, mapId, "warehouse") < (mapId === "orbit" ? 16 : 8)) built = tryBuild(state, mapId, "warehouse");
+    if (empties.length === 0) return;
+    if (countOperational(state, mapId, "scrapyard") < 4) build("scrapyard");
+    if (!built && countOperational(state, mapId, "mine") < 3) build("mine");
+    if (!built && !mapHas(state, mapId, "hub") && hasTech(state, "tech_logistics") && mapId !== "moon") build("hub");
+    if (!built && countOperational(state, mapId, "bioreactor") < 2) build("bioreactor");
+    if (!built && countOperational(state, mapId, "chemical") < 2 && map.resources.metal >= 50) build("chemical");
+    if (!built && !prioritizeFuel && countOperational(state, mapId, "assembler") < 3 && map.resources.metal >= 100) build("assembler");
+    if (!built && prioritizeFuel && map.resources.chip < 80 && countOperational(state, mapId, "assembler") < 2 && map.resources.metal >= 120) build("assembler");
+    if (!built && !prioritizeFuel && countOperational(state, mapId, "lab") < 4) build("lab");
+    if (!built && hasTech(state, "tech_refining") && countOperational(state, mapId, "smelter") < 2) build("smelter");
+    if (!built && hasTech(state, "tech_deep_drill1") && countOperational(state, mapId, "drill") < 3) build("drill");
+    if (!built && countOperational(state, mapId, "repair") < 1) build("repair");
+    if (!built && Object.entries(map.resources).some(([resource, amount]) => amount > getStorageGuard(state, mapId, resource)) && countOperational(state, mapId, "warehouse") < (mapId === "orbit" ? 16 : 8)) build("warehouse");
 
     if (!built && prioritizeFuel) {
-      if (countOperational(state, mapId, "chemical") < 4) built = tryBuild(state, mapId, "chemical");
-      if (!built && countOperational(state, mapId, "heliumExtractor") < 6) built = tryBuild(state, mapId, "heliumExtractor");
-      if (!built && countOperational(state, mapId, "fuelPlant") < 4) built = tryBuild(state, mapId, "fuelPlant");
+      if (countOperational(state, mapId, "chemical") < 4) build("chemical");
+      if (!built && countOperational(state, mapId, "heliumExtractor") < 6) build("heliumExtractor");
+      if (!built && countOperational(state, mapId, "fuelPlant") < 4) build("fuelPlant");
     }
-    if (!built && mapId === "orbit" && hasTech(state, "tech_space1") && countOperational(state, mapId, "warehouse") < 13) built = tryBuild(state, mapId, "warehouse");
-    if (!built && mapId === "orbit" && hasTech(state, "tech_space1") && !mapHas(state, mapId, "launchpad")) built = tryBuild(state, mapId, "launchpad");
-    if (!built && mapId === "orbit" && hasTech(state, "tech_rocketry") && !mapHas(state, mapId, "rocketFactory")) built = tryBuild(state, mapId, "rocketFactory");
+    if (!built && mapId === "orbit" && hasTech(state, "tech_space1") && countOperational(state, mapId, "warehouse") < 13) build("warehouse");
+    if (!built && mapId === "orbit" && hasTech(state, "tech_space1") && !mapHas(state, mapId, "launchpad")) build("launchpad");
+    if (!built && mapId === "orbit" && hasTech(state, "tech_rocketry") && !mapHas(state, mapId, "rocketFactory")) build("rocketFactory");
     if (!built) return;
   }
 }

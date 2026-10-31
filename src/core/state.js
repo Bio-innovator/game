@@ -1,12 +1,14 @@
 import { BUILDING_BY_ID } from "../data/buildings.js";
 import { DAY_SECONDS, MAP_BY_ID, MAP_SIZE } from "../data/maps.js";
+import { BALANCE } from "../data/balance.js";
+import { getQuote } from "../data/quotes.js";
 import { TECH_BY_ID } from "../data/techs.js";
 import { LOG_LIBRARY, formatLog } from "../data/logs.js";
 import { clampResource, safeAdd, safeMultiply } from "./decimal.js";
 import { createGameSeed, deriveSeed, nextRandom } from "./rng.js";
 import { gameEvents } from "./events.js";
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const CELL_COUNT = MAP_SIZE * MAP_SIZE;
 export const CORE_INDEX = Math.floor(MAP_SIZE / 2) * MAP_SIZE + Math.floor(MAP_SIZE / 2);
 export const RESOURCE_IDS = ["steel", "metal", "rare", "biomass", "chem", "chip", "helium3", "fuel"];
@@ -40,16 +42,22 @@ export function createMapState(mapId, seed) {
     randomState = random.state;
     terrain.push(Math.floor(random.value * 3));
   }
+  const buildings = Array(CELL_COUNT).fill(null);
+  const destroyed = Array(CELL_COUNT).fill(0);
+  const surface = { depth: 0, buildings, destroyed, unlocked: Array(CELL_COUNT).fill(true) };
   return {
     id: mapId,
     terrain,
     resources: fillResources(definition.startingResources),
-    buildings: Array(CELL_COUNT).fill(null),
-    destroyed: Array(CELL_COUNT).fill(0),
+    buildings,
+    destroyed,
+    layers: [surface],
+    currentDepth: 0,
     energy: { supply: 0, demand: 0, efficiency: 1, disabled: [] },
     rates: {},
     blackoutFor: 0,
     rationing: false,
+    stormStarted: 0,
     stormUntil: 0,
     nextHazard: 45,
   };
@@ -83,17 +91,19 @@ export function createInitialState(options = {}) {
     nextPulseDay: 12,
     lastWarningDay: 0,
     rocket: { stage: "idle", progress: 0, duration: BUILDING_BY_ID.rocketFactory.ability.rocketTime },
-    stats: { built: 0, completed: 0, destroyed: 0, pulses: 0, launches: 0, routesOpened: 0 },
+    stats: { built: 0, completed: 0, destroyed: 0, pulses: 0, launches: 0, routesOpened: 0, excavations: 0 },
     difficulty: options.difficulty ?? 1,
     cycle: options.cycle ?? 1,
     ending: null,
+    achievements: [],
     settings: {
       zoom: 1,
       speed: 1,
       paused: false,
       theme: globalThis.matchMedia?.("(prefers-color-scheme: light)")?.matches ? "light" : "dark",
-      fontSize: 13,
+      fontSize: 14,
       sound: false,
+      showGross: false,
     },
     logs: [],
     savedAt: Date.now(),
@@ -118,18 +128,88 @@ export function addLog(state, key, values = {}, tone = "normal") {
 }
 
 export function isOperational(building) {
-  return Boolean(building && building.hp > 0 && building.buildRemaining <= 0);
+  return Boolean(building && !building.anchor && building.hp > 0 && building.buildRemaining <= 0);
+}
+
+export function isPlaceholder(building) {
+  return Boolean(building && Number.isInteger(building.anchor));
 }
 
 export function getMap(state, mapId = state.currentMap) {
   return state.maps[mapId];
 }
 
+export function getLayer(map, depth = map.currentDepth ?? 0) {
+  return map.layers?.find((layer) => layer.depth === depth) ?? null;
+}
+
+export function getLayerBuildings(map, depth = map.currentDepth ?? 0) {
+  return getLayer(map, depth)?.buildings ?? (depth === 0 ? map.buildings : []);
+}
+
+export function getAllLayers(map) {
+  if (!map) return [];
+  return map.layers?.length ? map.layers : [{ depth: 0, buildings: map.buildings, destroyed: map.destroyed, unlocked: Array(CELL_COUNT).fill(true) }];
+}
+
+export function setActiveLayer(map, depth) {
+  const layer = getLayer(map, depth);
+  if (!layer) return false;
+  map.currentDepth = depth;
+  map.buildings = layer.buildings;
+  map.destroyed = layer.destroyed;
+  return true;
+}
+
+export function resolveAnchorIndex(buildings, index) {
+  const building = buildings[index];
+  return Number.isInteger(building?.anchor) ? building.anchor : index;
+}
+
+export function getBuildingSize(building) {
+  if (!building) return { w: 1, h: 1 };
+  const definition = BUILDING_BY_ID[building.id];
+  return building.size ?? definition?.size ?? { w: 1, h: 1 };
+}
+
+export function getFootprint(index, size = { w: 1, h: 1 }) {
+  if (!Number.isInteger(index) || index < 0 || index >= CELL_COUNT) return [];
+  const x = index % MAP_SIZE;
+  const y = Math.floor(index / MAP_SIZE);
+  if (x + size.w > MAP_SIZE || y + size.h > MAP_SIZE) return [];
+  const cells = [];
+  for (let dy = 0; dy < size.h; dy += 1) {
+    for (let dx = 0; dx < size.w; dx += 1) cells.push(index + dy * MAP_SIZE + dx);
+  }
+  return cells;
+}
+
+export function getFootprintNeighbors(index, size = { w: 1, h: 1 }) {
+  const x = index % MAP_SIZE;
+  const y = Math.floor(index / MAP_SIZE);
+  const neighbors = [];
+  for (let dx = -1; dx <= size.w; dx += 1) {
+    for (let dy = -1; dy <= size.h; dy += 1) {
+      if (dx >= 0 && dx < size.w && dy >= 0 && dy < size.h) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && nx < MAP_SIZE && ny >= 0 && ny < MAP_SIZE) neighbors.push(ny * MAP_SIZE + nx);
+    }
+  }
+  return neighbors;
+}
+
+export function getAllAnchors(map) {
+  return getAllLayers(map).flatMap((layer) => layer.buildings.filter((building) => building && !building.anchor));
+}
+
 export function getOwnedCount(state, buildingId) {
   let count = 0;
   for (const map of Object.values(state.maps)) {
-    for (const building of map.buildings) {
-      if (building?.id === buildingId) count += building.count;
+    for (const layer of getAllLayers(map)) {
+      for (const building of layer.buildings) {
+        if (building && !building.anchor && building.id === buildingId) count += building.count;
+      }
     }
   }
   return count;
@@ -137,10 +217,18 @@ export function getOwnedCount(state, buildingId) {
 
 export function getBuildCost(state, buildingId, mapId = state.currentMap) {
   const definition = BUILDING_BY_ID[buildingId];
-  const owned = state.maps[mapId]?.buildings.reduce((count, building) => count + (building?.id === buildingId ? building.count : 0), 0) ?? 0;
+  const owned = getAllAnchors(state.maps[mapId] ?? {}).filter((building) => building.id === buildingId).reduce((count, building) => count + building.count, 0);
   return Object.fromEntries(Object.entries(definition.cost).map(([resource, amount]) => [
     resource,
     Math.max(1, Math.ceil(safeMultiply(amount, 1.12 ** owned))),
+  ]));
+}
+
+export function getUpgradeCost(state, buildingId, currentLevel = 1) {
+  const definition = BUILDING_BY_ID[buildingId];
+  return Object.fromEntries(Object.entries(definition.cost).map(([resource, amount]) => [
+    resource,
+    Math.max(1, Math.ceil(amount * BALANCE.upgradeCostStep ** Math.max(0, currentLevel - 1))),
   ]));
 }
 
@@ -171,42 +259,63 @@ export function getCapacity(state, mapId, resource) {
   const map = getMap(state, mapId);
   const base = MAP_BY_ID[mapId].baseCapacity?.[resource] ?? 500;
   let bonus = 0;
-  for (const building of map.buildings) {
-    if (!isOperational(building)) continue;
-    const definition = BUILDING_BY_ID[building.id];
-    const storage = definition.produce.capacity ?? definition.ability?.storage ?? 0;
-    if (storage > 0) bonus += storage * (1.6 ** (building.count - 1));
+  for (const layer of getAllLayers(map)) {
+    for (const building of layer.buildings) {
+      if (!isOperational(building)) continue;
+      const definition = BUILDING_BY_ID[building.id];
+      const storage = definition.produce.capacity ?? definition.ability?.storage ?? 0;
+      if (storage > 0) bonus += storage * (1.6 ** (building.count - 1));
+    }
   }
   return Math.max(0, base + bonus);
 }
 
 export function findCompletedBuilding(state, mapId, buildingId) {
-  return getMap(state, mapId)?.buildings.some((building) => building?.id === buildingId && isOperational(building)) ?? false;
+  const map = getMap(state, mapId);
+  if (!map) return false;
+  return getAllAnchors(map).some((building) => building.id === buildingId && isOperational(building));
 }
 
 export function getStackMaxHp(definition, count) {
   return Math.max(definition.hp * 0.4, definition.hp * (1 - (count - 1) * 0.12));
 }
 
-export function canBuildAt(state, mapId, index, buildingId) {
+export function canBuildAt(state, mapId, index, buildingId, depth = null) {
   const definition = BUILDING_BY_ID[buildingId];
   const map = getMap(state, mapId);
   if (!definition || !map) return result(false, "蓝图或区域不存在。");
   if (index < 0 || index >= CELL_COUNT || !Number.isInteger(index)) return result(false, "无效格子。");
-  if (mapId === "ash" && index === CORE_INDEX) return result(false, "运算中心占用此格。它拒绝搬家。");
+  const layer = getLayer(map, depth ?? map.currentDepth ?? 0);
+  if (!layer) return result(false, "该地下层尚未打通。");
+  if (mapId === "ash" && layer.depth === 0 && index === CORE_INDEX) return result(false, "运算中心占用此格。它拒绝搬家。");
   if (!hasTech(state, definition.unlock)) return result(false, "尚未完成对应科研。");
   if (definition.maps && !definition.maps.includes(mapId)) return result(false, "该建筑无法在此环境工作。");
-  const existing = map.buildings[index];
-  if (existing && existing.id !== buildingId) return result(false, "此格已有其他建筑。");
-  if (existing && !definition.stackable) return result(false, "该建筑不可堆叠。");
-  if (buildingId === "hub" && map.buildings.some((building, cellIndex) => building?.id === "hub" && cellIndex !== index)) {
+  if (layer.depth > 0 && ["logistics", "aerospace"].includes(definition.category)) return result(false, "物流与航天设施只能建在地表。");
+  if (layer.depth > 0 && !layer.unlocked[index]) return result(false, "这里仍是岩层，需要爆破或地下支撑。");
+  const size = definition.size ?? { w: 1, h: 1 };
+  const footprint = getFootprint(index, size);
+  if (footprint.length === 0) return result(false, "设施超出地图边界。");
+  if (mapId === "ash" && layer.depth === 0 && footprint.includes(CORE_INDEX)) return result(false, "运算中心占用这片地基。它拒绝搬家。");
+  let existingAnchorIndex = null;
+  for (const cellIndex of footprint) {
+    if (!layer.unlocked[cellIndex]) return result(false, "地基范围内仍有未开掘岩层。");
+    const cell = layer.buildings[cellIndex];
+    if (!cell) continue;
+    const anchorIndex = resolveAnchorIndex(layer.buildings, cellIndex);
+    if (existingAnchorIndex === null) existingAnchorIndex = anchorIndex;
+    else if (existingAnchorIndex !== anchorIndex) return result(false, "地基范围内已有其他设施。");
+  }
+  const existing = existingAnchorIndex === null ? null : layer.buildings[existingAnchorIndex];
+  if (existing && existing.id !== buildingId) return result(false, "此格已有其他设施。");
+  if (existing && (!definition.stackable || size.w > 1 || size.h > 1)) return result(false, "大型设施不可原地升级。");
+  if (buildingId === "hub" && getAllLayers(map).some((item) => item.buildings.some((building) => building?.id === "hub"))) {
     return result(false, "每张地图仅能保留一座中转站。");
   }
-  const cost = getBuildCost(state, buildingId, mapId);
+  const cost = existing?.id === buildingId ? getUpgradeCost(state, buildingId, existing.count) : getBuildCost(state, buildingId, mapId);
   for (const [resource, amount] of Object.entries(cost)) {
     if ((map.resources[resource] ?? 0) < amount) return result(false, `${RESOURCE_NAMES[resource] ?? resource}不足。`, { cost });
   }
-  return result(true, "", { cost, existing });
+  return result(true, "", { cost, existing, existingAnchorIndex, depth: layer.depth, size, footprint });
 }
 
 function spendResources(map, cost) {
@@ -219,11 +328,23 @@ function hasRouteForHub(state, mapId) {
   return state.routes.some((route) => route.a === mapId || route.b === mapId);
 }
 
+function unlockArea(layer, index, radius) {
+  const centerX = index % MAP_SIZE;
+  const centerY = Math.floor(index / MAP_SIZE);
+  for (let y = centerY - radius; y <= centerY + radius; y += 1) {
+    for (let x = centerX - radius; x <= centerX + radius; x += 1) {
+      if (x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE) layer.unlocked[y * MAP_SIZE + x] = true;
+    }
+  }
+}
+
 function applyBuild(state, action) {
-  const validation = canBuildAt(state, action.mapId, action.index, action.buildingId);
-  if (!validation.ok) return validation;
   const map = getMap(state, action.mapId);
+  const depth = action.depth ?? map?.currentDepth ?? 0;
+  const validation = canBuildAt(state, action.mapId, action.index, action.buildingId, depth);
+  if (!validation.ok) return validation;
   const definition = BUILDING_BY_ID[action.buildingId];
+  const layer = getLayer(map, depth);
   spendResources(map, validation.cost);
   if (validation.existing) {
     const building = validation.existing;
@@ -232,8 +353,10 @@ function applyBuild(state, action) {
     building.hp = Math.min(building.maxHp, building.hp + definition.hp * 0.35);
     building.buildTotal = definition.buildTime * 0.75;
     building.buildRemaining = building.buildTotal;
+    gameEvents.emit("upgrade", { mapId: action.mapId, index: validation.existingAnchorIndex, buildingId: action.buildingId, level: building.count });
   } else {
-    map.buildings[action.index] = {
+    const anchorIndex = action.index;
+    layer.buildings[anchorIndex] = {
       id: action.buildingId,
       count: 1,
       hp: definition.hp,
@@ -241,11 +364,16 @@ function applyBuild(state, action) {
       buildTotal: definition.buildTime,
       buildRemaining: definition.buildTime,
       underground: false,
+      size: definition.size ?? { w: 1, h: 1 },
+      depth,
     };
+    for (const cellIndex of validation.footprint) {
+      if (cellIndex !== anchorIndex) layer.buildings[cellIndex] = { anchor: anchorIndex };
+    }
   }
   state.stats.built += 1;
   addLog(state, "build", { name: definition.name });
-  gameEvents.emit("build", { mapId: action.mapId, index: action.index, buildingId: action.buildingId });
+  gameEvents.emit("build", { mapId: action.mapId, index: action.index, buildingId: action.buildingId, depth });
   return result(true, `${definition.name}已开始建造。`);
 }
 
@@ -343,21 +471,41 @@ function applyRocketFuel(state) {
 
 function applyDamage(state, damage) {
   const map = getMap(state, damage.mapId);
-  const building = map?.buildings[damage.index];
-  if (!building || building.underground) return false;
+  const layer = getLayer(map, damage.depth ?? 0);
+  if (!layer) return false;
+  const anchorIndex = resolveAnchorIndex(layer.buildings, damage.index);
+  const building = layer.buildings[anchorIndex];
+  if (!building || building.underground || building.anchor) return false;
   building.hp -= damage.amount;
   if (building.hp > 0) return false;
-  map.destroyed[damage.index] += 1;
-  map.buildings[damage.index] = null;
+  layer.destroyed[anchorIndex] += 1;
+  for (const cellIndex of getFootprint(anchorIndex, getBuildingSize(building))) layer.buildings[cellIndex] = null;
   state.stats.destroyed += 1;
   return true;
 }
 
 function applyPulse(state, action) {
   let destroyed = 0;
+  let damaged = 0;
+  let durabilityLost = 0;
+  let exposedDurability = 0;
+  const hitAnchors = new Set();
   for (const damage of action.damages) {
-    if (applyDamage(state, damage)) destroyed += 1;
+    const map = getMap(state, damage.mapId);
+    const layer = getLayer(map, damage.depth ?? 0);
+    const anchorIndex = layer ? resolveAnchorIndex(layer.buildings, damage.index) : damage.index;
+    const anchorKey = `${damage.mapId}:${layer?.depth ?? 0}:${anchorIndex}`;
+    if (hitAnchors.has(anchorKey)) continue;
+    const building = layer?.buildings[anchorIndex];
+    if (!building || building.underground || building.anchor) continue;
+    hitAnchors.add(anchorKey);
+    exposedDurability += building.maxHp;
+    const before = building.hp;
+    if (applyDamage(state, { ...damage, depth: layer.depth, index: anchorIndex })) destroyed += 1;
+    else damaged += 1;
+    durabilityLost += Math.min(before, damage.amount);
   }
+  const lossPercent = exposedDurability > 0 ? Math.round(durabilityLost / exposedDurability * 100) : 0;
   for (const routeId of action.cutRoutes) {
     const route = state.routes.find((item) => item.id === routeId);
     if (route) {
@@ -368,9 +516,9 @@ function applyPulse(state, action) {
   state.rngState = action.rngState;
   state.nextPulseDay = action.nextPulseDay;
   state.stats.pulses += 1;
-  addLog(state, "pulse", { count: destroyed }, destroyed > 0 ? "alert" : "good");
+  addLog(state, "pulseReport", { damaged, destroyed, loss: lossPercent }, destroyed > 0 ? "alert" : "good");
   gameEvents.emit("disaster", { damages: action.damages, cutRoutes: action.cutRoutes });
-  return result(true, `日冕脉冲结束：${destroyed} 座建筑损毁。`);
+  return result(true, `本次脉冲：${damaged} 座受损，${destroyed} 座摧毁，总耐久损失 ${lossPercent}%。`);
 }
 
 export function apply(state, action) {
@@ -383,13 +531,35 @@ export function apply(state, action) {
       return result(true);
     }
     case "BUILD_TICK": {
-      for (const map of Object.values(state.maps)) {
-        for (const building of map.buildings) {
-          if (!building || building.buildRemaining <= 0) continue;
-          building.buildRemaining = Math.max(0, building.buildRemaining - action.dt);
-          if (building.buildRemaining === 0) {
+      for (const [mapId, map] of Object.entries(state.maps)) {
+        for (const layer of getAllLayers(map)) {
+          for (let index = 0; index < layer.buildings.length; index += 1) {
+            const building = layer.buildings[index];
+            if (!building || building.anchor || building.buildRemaining <= 0) continue;
+            building.buildRemaining = Math.max(0, building.buildRemaining - action.dt);
+            if (building.buildRemaining > 0) continue;
+            const definition = BUILDING_BY_ID[building.id];
             state.stats.completed += 1;
-            addLog(state, "complete", { name: BUILDING_BY_ID[building.id].name }, "good");
+            addLog(state, "complete", { name: definition.name }, "good");
+            if (definition.ability?.blast) {
+              const nextDepth = layer.depth + 1;
+              if (nextDepth <= BALANCE.maxDepth) {
+                let nextLayer = getLayer(map, nextDepth);
+                if (!nextLayer) {
+                  nextLayer = { depth: nextDepth, buildings: Array(CELL_COUNT).fill(null), destroyed: Array(CELL_COUNT).fill(0), unlocked: Array(CELL_COUNT).fill(false), nextCollapse: state.elapsed + 90 };
+                  map.layers.push(nextLayer);
+                  map.layers.sort((left, right) => left.depth - right.depth);
+                }
+                unlockArea(nextLayer, index, 1);
+                state.stats.excavations += 1;
+                addLog(state, "excavation", { map: MAP_BY_ID[mapId].name, depth: nextDepth }, "good");
+                gameEvents.emit("layer", { mapId, depth: nextDepth });
+              }
+              layer.buildings[index] = null;
+            } else if (definition.ability?.excavateRadius) {
+              unlockArea(layer, index, definition.ability.excavateRadius);
+              addLog(state, "support", { map: MAP_BY_ID[mapId].name }, "good");
+            }
           }
         }
       }
@@ -419,15 +589,25 @@ export function apply(state, action) {
         state.totalData = safeAdd(state.totalData, action.dataDelta);
       }
       for (const repair of action.repairs ?? []) {
-        const building = map.buildings[repair.index];
-        if (building) building.hp = Math.min(building.maxHp, building.hp + repair.amount);
+        const layer = getLayer(map, repair.depth ?? map.currentDepth ?? 0);
+        const building = layer?.buildings[repair.index];
+        if (building && !building.anchor) building.hp = Math.min(building.maxHp, building.hp + repair.amount);
       }
       map.rates = { ...action.rates };
+      map.grossRates = action.gross && typeof action.gross === "object" ? { ...action.gross } : {};
       return result(true);
     }
     case "LOG":
       addLog(state, action.key, action.values, action.tone);
       return result(true);
+    case "ACHIEVEMENT": {
+      if (state.achievements.includes(action.achievement.id)) return result(false, "成就已完成。");
+      const quote = getQuote(action.achievement.quoteId);
+      state.achievements.push(action.achievement.id);
+      addLog(state, "achievement", { name: action.achievement.name, quote: quote.text, author: quote.author }, "good");
+      gameEvents.emit("achievement", { achievement: action.achievement, quote });
+      return result(true, `成就解锁：${action.achievement.name}`);
+    }
     case "RESEARCH":
       return applyResearch(state, action);
     case "EXPAND":
@@ -435,8 +615,16 @@ export function apply(state, action) {
     case "SWITCH_MAP":
       if (!state.unlockedMaps.includes(action.mapId)) return result(false, "区域尚未接入网络。");
       state.currentMap = action.mapId;
+      if (state.maps[action.mapId].currentDepth !== 0) setActiveLayer(state.maps[action.mapId], 0);
       gameEvents.emit("map", { mapId: action.mapId });
       return result(true);
+    case "SWITCH_LAYER": {
+      const map = getMap(state, action.mapId ?? state.currentMap);
+      if (!map) return result(false, "区域不存在。");
+      if (!setActiveLayer(map, action.depth)) return result(false, "该地下层尚未打通。");
+      gameEvents.emit("map", { mapId: map.id, depth: action.depth });
+      return result(true, action.depth === 0 ? "返回地表。" : `进入地下 -${action.depth}。`);
+    }
     case "UPGRADE_CENTER": {
       const cost = 100 * (state.centerLevel ** 2);
       if (state.data < cost) return result(false, `升级需要 ${cost} 数据。`);
@@ -487,21 +675,28 @@ export function apply(state, action) {
     }
     case "DISMANTLE": {
       const map = getMap(state, action.mapId);
-      const building = map?.buildings[action.index];
-      if (!building) return result(false, "此格没有可拆除建筑。");
+      const layer = getLayer(map, action.depth ?? map.currentDepth ?? 0);
+      if (!layer) return result(false, "地下层不存在。");
+      const anchorIndex = resolveAnchorIndex(layer.buildings, action.index);
+      const building = layer.buildings[anchorIndex];
+      if (!building || building.anchor) return result(false, "请点击大型设施的中心格拆除。");
       if (building.id === "hub" && hasRouteForHub(state, action.mapId)) return result(false, "请先拆除或保留商路；中转站不能凭空消失。");
       const definition = BUILDING_BY_ID[building.id];
       for (const [resource, amount] of Object.entries(definition.cost)) {
         map.resources[resource] = clampResource(map.resources[resource] + amount * building.count * 0.35, getCapacity(state, action.mapId, resource));
       }
-      map.buildings[action.index] = null;
-      return result(true, "节点已拆除，返还了 35% 基础材料。");
+      for (const cellIndex of getFootprint(anchorIndex, getBuildingSize(building))) layer.buildings[cellIndex] = null;
+      gameEvents.emit("dismantle", { mapId: action.mapId, index: anchorIndex, buildingId: building.id, depth: layer.depth });
+      return result(true, "设施已拆除，返还了 35% 基础材料。");
     }
     case "UNDERGROUND": {
-      const building = getMap(state, action.mapId)?.buildings[action.index];
-      if (!building) return result(false, "此格没有建筑。");
-      if (!hasTech(state, "tech_hardening")) return result(false, "需要加固工程科技。");
       const map = getMap(state, action.mapId);
+      const layer = getLayer(map, action.depth ?? map.currentDepth ?? 0);
+      const anchorIndex = layer ? resolveAnchorIndex(layer.buildings, action.index) : action.index;
+      const building = layer?.buildings[anchorIndex];
+      if (!building) return result(false, "此格没有建筑。");
+      if (layer.depth > 0) return result(false, "地下设施不需要重复地下化。");
+      if (!hasTech(state, "tech_hardening")) return result(false, "需要加固工程科技。");
       if (!building.underground) {
         if (map.resources.metal < 15) return result(false, "地下化改造需要 15 金属。");
         map.resources.metal -= 15;
@@ -536,6 +731,22 @@ export function apply(state, action) {
       getMap(state, action.mapId).nextHazard = action.nextHazard;
       state.rngState = action.rngState ?? state.rngState;
       return result(true);
+    case "COLLAPSE": {
+      const map = getMap(state, action.mapId);
+      const layer = getLayer(map, action.depth);
+      if (!layer) return result(false, "塌方目标层不存在。");
+      const anchorIndex = resolveAnchorIndex(layer.buildings, action.index);
+      const building = layer.buildings[anchorIndex];
+      if (building && !building.anchor) {
+        for (const cellIndex of getFootprint(anchorIndex, getBuildingSize(building))) layer.buildings[cellIndex] = null;
+      }
+      layer.unlocked[action.index] = false;
+      layer.nextCollapse = action.nextCollapse;
+      state.rngState = action.rngState ?? state.rngState;
+      addLog(state, "collapse", { map: MAP_BY_ID[action.mapId].name, depth: layer.depth }, "alert");
+      gameEvents.emit("hazard", { damage: { mapId: action.mapId, depth: layer.depth, index: action.index, amount: 0 } });
+      return result(true, `地下 -${layer.depth} 发生塌方，一格空间被封死。`);
+    }
     case "ROUTE_CUT": {
       const route = state.routes.find((item) => item.id === action.routeId);
       if (route) route.connected = false;
@@ -546,8 +757,10 @@ export function apply(state, action) {
     }
     case "STORM": {
       const map = getMap(state, action.mapId);
+      map.stormStarted = state.elapsed;
       map.stormUntil = action.until;
       map.nextHazard = action.nextHazard;
+      state.rngState = action.rngState ?? state.rngState;
       return result(true);
     }
     case "ROCKET_START":
@@ -605,10 +818,11 @@ export function apply(state, action) {
       return result(true, `周目 ${state.cycle} 已启动。科技与中心等级保留。`);
     }
     case "SET_SETTING": {
-      const allowed = ["zoom", "speed", "paused", "theme", "fontSize", "sound"];
+      const allowed = ["zoom", "speed", "paused", "theme", "fontSize", "sound", "showGross"];
       if (!allowed.includes(action.key)) return result(false, "未知设置项。");
       if (action.key === "theme" && !["dark", "light"].includes(action.value)) return result(false, "未知主题。");
-      if (action.key === "fontSize" && ![13, 15, 17].includes(action.value)) return result(false, "字号不受支持。");
+      if (action.key === "fontSize" && ![12, 14, 16].includes(action.value)) return result(false, "字号不受支持。");
+      if (action.key === "showGross" && typeof action.value !== "boolean") return result(false, "开关取值无效。");
       state.settings[action.key] = action.value;
       return result(true);
     }
@@ -617,15 +831,14 @@ export function apply(state, action) {
   }
 }
 
-export function getBuildingResistance(state, mapId, index) {
+export function getBuildingResistance(state, mapId, index, depth = 0) {
   const map = getMap(state, mapId);
-  const accumulated = 1 - Math.exp(-(map.destroyed[index] ?? 0) / 3);
-  let fortification = 0;
-  for (const building of map.buildings) {
-    if (isOperational(building) && BUILDING_BY_ID[building.id].ability?.resistance) {
-      fortification += BUILDING_BY_ID[building.id].ability.resistance * building.count;
-    }
-  }
+  const layer = getLayer(map, depth);
+  if (!layer) return 1;
+  const anchorIndex = resolveAnchorIndex(layer.buildings, index);
+  const accumulated = 1 - Math.exp(-(layer.destroyed[anchorIndex] ?? 0) / 3);
+  const building = layer.buildings[anchorIndex];
+  const fortification = building && isOperational(building) ? (BUILDING_BY_ID[building.id].ability?.resistance ?? 0) * building.count : 0;
   return Math.min(0.9, accumulated + fortification);
 }
 

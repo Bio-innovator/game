@@ -16,17 +16,29 @@ export function getExpansionStatus(state, mapId) {
 export function getEndgameStatus(state) {
   const launchpad = state.unlockedMaps.includes("orbit") && findCompletedBuilding(state, "orbit", "launchpad");
   const factory = state.unlockedMaps.includes("orbit") && findCompletedBuilding(state, "orbit", "rocketFactory");
-  const moonBuildings = state.maps.moon?.buildings.filter(isOperational) ?? [];
+  const moonBuildings = state.maps.moon?.buildings.filter((building) => isOperational(building) && !building.anchor) ?? [];
   const moonCore = findCompletedBuilding(state, "moon", "dataCore");
+  const assemblyDone = ["awaitingFuel", "ready", "launching", "landed"].includes(state.rocket.stage);
+  const assemblyProgress = assemblyDone ? state.rocket.duration : state.rocket.stage === "assembling" ? state.rocket.progress : 0;
+  const fueled = ["ready", "launching", "landed"].includes(state.rocket.stage);
+  const fuelTarget = 600;
+  const orbitFuel = fueled ? fuelTarget : Math.min(fuelTarget, state.maps.orbit?.resources.fuel ?? 0);
+  const landed = state.rocket.stage === "landed";
+  const canBackup = landed && moonBuildings.length >= 3 && moonCore;
   return {
     launchpad,
     factory,
     assembly: state.rocket.stage !== "idle",
-    fueled: ["ready", "launching", "landed"].includes(state.rocket.stage),
-    landed: state.rocket.stage === "landed",
+    assemblyDone,
+    assemblyProgress,
+    fuelProgress: orbitFuel,
+    fuelTarget,
+    fueled,
+    landed,
+    launched: ["launching", "landed"].includes(state.rocket.stage),
     moonCount: moonBuildings.length,
     moonCore,
-    canBackup: state.rocket.stage === "landed" && moonBuildings.length >= 3 && moonCore,
+    canBackup,
     canUpload: hasTech(state, "tech_upload") && ["ready", "launching", "landed"].includes(state.rocket.stage),
     canStay: state.day >= 100,
   };

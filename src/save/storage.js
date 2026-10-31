@@ -8,11 +8,18 @@ export const SAVE_KEY = "hundred-day-city-save-v1";
 const CELL_COUNT = MAP_SIZE * MAP_SIZE;
 const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 
-function normalizeBuilding(building) {
-  if (!building || !BUILDING_BY_ID[building.id]) return null;
+function normalizeBuilding(building, legacy = false) {
+  if (!building || typeof building !== "object") return null;
+  if (Number.isInteger(building.anchor)) return { anchor: building.anchor };
+  if (!BUILDING_BY_ID[building.id]) return null;
   const definition = BUILDING_BY_ID[building.id];
   const count = Math.max(1, Math.min(1000, Math.floor(finite(building.count, 1))));
   const maxHp = Math.max(1, finite(building.maxHp, definition.hp));
+  const rawSize = legacy ? { w: 1, h: 1 } : building.size ?? definition.size ?? { w: 1, h: 1 };
+  const size = {
+    w: Math.max(1, Math.min(5, Math.floor(finite(rawSize.w, 1)))),
+    h: Math.max(1, Math.min(5, Math.floor(finite(rawSize.h, 1)))),
+  };
   return {
     id: building.id,
     count,
@@ -21,6 +28,29 @@ function normalizeBuilding(building) {
     buildTotal: Math.max(0, finite(building.buildTotal, definition.buildTime)),
     buildRemaining: Math.max(0, finite(building.buildRemaining, 0)),
     underground: Boolean(building.underground),
+    size,
+    depth: Math.max(0, Math.floor(finite(building.depth, 0))),
+  };
+}
+
+function normalizeLayer(layer, depth, legacy) {
+  const fallbackDestroyed = Array(CELL_COUNT).fill(0);
+  const buildings = Array(CELL_COUNT).fill(null);
+  for (let index = 0; index < CELL_COUNT; index += 1) buildings[index] = normalizeBuilding(layer?.buildings?.[index], legacy);
+  for (let index = 0; index < CELL_COUNT; index += 1) {
+    const building = buildings[index];
+    if (!building || !building.anchor) continue;
+    const anchor = buildings[building.anchor];
+    if (!anchor || anchor.anchor) buildings[index] = null;
+  }
+  return {
+    depth,
+    buildings,
+    destroyed: Array.from({ length: CELL_COUNT }, (_, index) => Math.max(0, Math.floor(finite(layer?.destroyed?.[index], fallbackDestroyed[index])))),
+    unlocked: depth === 0
+      ? Array(CELL_COUNT).fill(true)
+      : Array.from({ length: CELL_COUNT }, (_, index) => Boolean(layer?.unlocked?.[index])),
+    nextCollapse: Math.max(0, finite(layer?.nextCollapse, 90)),
   };
 }
 
@@ -29,23 +59,40 @@ function normalizeMap(mapId, source, seed) {
   if (!source || typeof source !== "object") return base;
   const resources = { ...base.resources };
   for (const resource of RESOURCE_IDS) resources[resource] = Math.max(0, finite(source.resources?.[resource], resources[resource]));
-  const buildings = Array(CELL_COUNT).fill(null);
-  for (let index = 0; index < CELL_COUNT; index += 1) buildings[index] = normalizeBuilding(source.buildings?.[index]);
+  const legacy = !Array.isArray(source.layers);
+  const sourceLayers = legacy ? [{ depth: 0, buildings: source.buildings, destroyed: source.destroyed, unlocked: Array(CELL_COUNT).fill(true) }] : source.layers;
+  const layers = sourceLayers
+    .filter((layer) => layer && Number.isInteger(layer.depth) && layer.depth >= 0 && layer.depth <= 3)
+    .map((layer) => normalizeLayer(layer, layer.depth, legacy))
+    .sort((left, right) => left.depth - right.depth);
+  if (!layers.some((layer) => layer.depth === 0)) layers.unshift(normalizeLayer({ buildings: source.buildings, destroyed: source.destroyed }, 0, true));
+  const maxDepth = Math.max(...layers.map((layer) => layer.depth));
+  const requestedDepth = Math.max(0, Math.min(maxDepth, Math.floor(finite(source.currentDepth, 0))));
+  const active = layers.find((layer) => layer.depth === requestedDepth) ?? layers[0];
   return {
     ...base,
     terrain: Array.from({ length: CELL_COUNT }, (_, index) => Math.max(0, Math.min(2, Math.floor(finite(source.terrain?.[index], base.terrain[index]))))),
     resources,
-    buildings,
-    destroyed: Array.from({ length: CELL_COUNT }, (_, index) => Math.max(0, Math.floor(finite(source.destroyed?.[index], 0)))),
+    layers,
+    currentDepth: active.depth,
+    buildings: active.buildings,
+    destroyed: active.destroyed,
     energy: {
       supply: Math.max(0, finite(source.energy?.supply)),
       demand: Math.max(0, finite(source.energy?.demand)),
       efficiency: Math.max(0, Math.min(1, finite(source.energy?.efficiency, 1))),
-      disabled: Array.isArray(source.energy?.disabled) ? source.energy.disabled.filter((index) => Number.isInteger(index) && index >= 0 && index < CELL_COUNT) : [],
+      disabled: Array.isArray(source.energy?.disabled)
+        ? source.energy.disabled.map((value) => {
+          if (typeof value === "string" && /^\d+:\d+$/.test(value)) return value;
+          if (Number.isInteger(value) && value >= 0 && value < CELL_COUNT) return `0:${value}`;
+          return null;
+        }).filter(Boolean)
+        : [],
     },
     rates: source.rates && typeof source.rates === "object" ? { ...source.rates } : {},
     blackoutFor: Math.max(0, finite(source.blackoutFor)),
     rationing: Boolean(source.rationing),
+    stormStarted: Math.max(0, finite(source.stormStarted)),
     stormUntil: Math.max(0, finite(source.stormUntil)),
     nextHazard: Math.max(0, finite(source.nextHazard, 45)),
   };
@@ -115,13 +162,15 @@ export function migrateAndValidate(payload) {
     },
     stats: Object.fromEntries(Object.entries(base.stats).map(([key, value]) => [key, Math.max(0, Math.floor(finite(source.stats?.[key], value)))])),
     ending: source.ending && ["backup", "stay", "upload"].includes(source.ending.id) ? { ...source.ending } : null,
+    achievements: Array.isArray(source.achievements) ? source.achievements.filter((id, index, list) => typeof id === "string" && list.indexOf(id) === index) : [],
     settings: {
       zoom: [1, 2, 3].includes(source.settings?.zoom) ? source.settings.zoom : 1,
       speed: [1, 2, 4].includes(source.settings?.speed) ? source.settings.speed : 1,
       paused: Boolean(source.settings?.paused),
       theme: ["dark", "light"].includes(source.settings?.theme) ? source.settings.theme : base.settings.theme,
-      fontSize: [13, 15, 17].includes(source.settings?.fontSize) ? source.settings.fontSize : 13,
+      fontSize: [12, 14, 16].includes(source.settings?.fontSize) ? source.settings.fontSize : 14,
       sound: Boolean(source.settings?.sound),
+      showGross: Boolean(source.settings?.showGross),
     },
     logs: Array.isArray(source.logs) ? source.logs.slice(0, 80).map((entry) => ({ day: Math.max(1, Math.floor(finite(entry.day, 1))), text: String(entry.text), tone: ["normal", "alert", "good"].includes(entry.tone) ? entry.tone : "normal" })) : base.logs,
     savedAt: finite(payload.savedAt, Date.now()),

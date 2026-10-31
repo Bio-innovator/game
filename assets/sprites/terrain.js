@@ -1,4 +1,24 @@
 // 六张地图各三种 24×24 地表变体；实心像素块便于无缝铺设。
+const FLOOR_INK = {
+  ash: ["2", "3"],
+  swamp: ["c", "d"],
+  rift: ["1", "2"],
+  ice: ["r", "s"],
+  orbit: ["0", "p"],
+  moon: ["u", "v"],
+};
+
+function makeFloor([dark, light]) {
+  return Array.from({ length: 24 }, (_, y) => Array.from({ length: 24 }, (_, x) => {
+    if (x === 0 || y === 0 || x === 23 || y === 23) return dark;
+    if (x % 8 === 0 || y % 8 === 0) return dark;
+    if ((x * 3 + y * 5) % 13 === 0) return dark;
+    return light;
+  }).join(""));
+}
+
+export const FLOOR_SPRITES = Object.fromEntries(Object.entries(FLOOR_INK).map(([mapId, colors]) => [mapId, makeFloor(colors)]));
+
 export const TERRAIN_SPRITES = {
   ash: [
     [

@@ -251,7 +251,7 @@ test("终局检查能识别发射台、工厂与月背建城条件", () => {
   state.maps.orbit.resources.chip = 500;
   state.maps.orbit.resources.rare = 500;
   place(state, "orbit", 100, "launchpad");
-  place(state, "orbit", 101, "rocketFactory");
+  place(state, "orbit", 180, "rocketFactory");
   let status = getEndgameStatus(state);
   assert.equal(status.launchpad, true);
   assert.equal(status.factory, true);
@@ -262,7 +262,7 @@ test("终局检查能识别发射台、工厂与月背建城条件", () => {
   state.maps.moon = createMapState("moon", state.seed);
   place(state, "moon", 100, "fission");
   place(state, "moon", 101, "dataCore");
-  place(state, "moon", 102, "lab");
+  place(state, "moon", 103, "lab");
   status = getEndgameStatus(state);
   assert.equal(status.canBackup, true);
   assert.equal(state.maps.moon.resources.metal >= 0, true);

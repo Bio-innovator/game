@@ -3,6 +3,7 @@ import { computeEnergy } from "../systems/energy.js";
 import { computeProduction } from "../systems/production.js";
 import { computeLogistics } from "../systems/logistics.js";
 import { getDisasterActions } from "../systems/disaster.js";
+import { getNewAchievements } from "../systems/achievements.js";
 
 export const FIXED_STEP = 0.1;
 
@@ -23,6 +24,7 @@ export function simulateTick(state, dt = FIXED_STEP, options = {}) {
   if (!options.skipDisasters) {
     for (const action of getDisasterActions(state, dt)) apply(state, action);
   }
+  for (const achievement of getNewAchievements(state)) apply(state, { type: "ACHIEVEMENT", achievement });
   return state;
 }
 
