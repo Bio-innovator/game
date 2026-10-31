@@ -10,6 +10,7 @@ export class FrameEffects {
     this.particles = [];
     this.flashFrames = 0;
     this.shakeFrames = 0;
+    this.reducedMotion = Boolean(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
     this.affected = new Map();
     gameEvents.on("disaster", ({ damages }) => {
       this.flashFrames = 2;
@@ -26,7 +27,7 @@ export class FrameEffects {
   }
 
   getShake() {
-    if (this.shakeFrames <= 0) return { x: 0, y: 0 };
+    if (this.reducedMotion || this.shakeFrames <= 0) return { x: 0, y: 0 };
     return { x: (this.shakeFrames % 3) - 1, y: ((this.shakeFrames * 2) % 3) - 1 };
   }
 
@@ -61,6 +62,34 @@ export class FrameEffects {
 
   draw(context, state, frame) {
     const palette = getPalette(state.settings?.theme);
+    const map = state.maps[state.currentMap];
+    const stormActive = state.currentMap === "ash" && state.elapsed < map.stormUntil;
+    if (stormActive) {
+      const fadeIn = Math.min(1, Math.max(0, (state.elapsed - map.stormStarted) / 0.5));
+      const fadeOut = Math.min(1, Math.max(0, (map.stormUntil - state.elapsed) / 0.5));
+      const intensity = Math.min(fadeIn, fadeOut);
+      context.save();
+      context.globalAlpha = 0.16 * intensity;
+      context.fillStyle = palette["3"];
+      context.fillRect(0, 0, 576, 576);
+      if (!this.reducedMotion) {
+        context.globalAlpha = 0.34 * intensity;
+        for (let index = 0; index < 110; index += 1) {
+          const x = (index * 83 + frame * (2 + index % 3)) % 590;
+          const y = (index * 47 + Math.sin((frame + index * 9) / 30) * 14 + 576) % 576;
+          const size = index % 11 === 0 ? 3 : 1;
+          context.fillRect(Math.round(x), Math.round(y), size, 1);
+        }
+        context.globalAlpha = 0.1 * intensity;
+        for (let index = 0; index < map.buildings.length; index += 1) {
+          if (!map.buildings[index]) continue;
+          const x = (index % 24) * 24 + 6;
+          const y = Math.floor(index / 24) * 24 + 4;
+          context.fillRect(x, y, 14, 2);
+        }
+      }
+      context.restore();
+    }
     for (const [key, life] of this.affected) {
       const [mapId, rawIndex] = key.split(":");
       if (mapId !== state.currentMap || life % 4 > 1) continue;

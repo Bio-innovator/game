@@ -1,5 +1,5 @@
 import { getPalette } from "../../assets/palette.js";
-import { TERRAIN_SPRITES } from "../../assets/sprites/terrain.js";
+import { FLOOR_SPRITES, TERRAIN_SPRITES } from "../../assets/sprites/terrain.js";
 import { BUILDING_SPRITES, CORE_SPRITE, RUBBLE_SPRITE } from "../../assets/sprites/buildings.js";
 import { EFFECT_SPRITES } from "../../assets/sprites/effects.js";
 
@@ -59,6 +59,10 @@ export function getRubbleSprite() {
 export function getTerrainSprite(mapId, variant) {
   const variants = TERRAIN_SPRITES[mapId];
   return cached(`terrain:${mapId}:${variant}`, variants[variant % variants.length]);
+}
+
+export function getFloorSprite(mapId) {
+  return cached(`floor:${mapId}`, FLOOR_SPRITES[mapId]);
 }
 
 export function getEffectSprite(id) {
