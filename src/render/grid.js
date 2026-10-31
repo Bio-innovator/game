@@ -7,12 +7,14 @@ import {
   getBuildingSprite,
   getCoreSprite,
   getRubbleSprite,
+  getFloorTileSprite,
   getSpriteTheme,
   getTerrainSprite,
   setSpriteTheme,
 } from "./sprites.js";
 import { drawAdjacencyNetwork, drawRoutes } from "./routes.js";
 import { FrameEffects } from "./fx.js";
+import { ZOOM_STEPS, migrateZoom, zoomIndex } from "../data/zoom.js";
 
 const GRID_SIZE = MAP_SIZE * TILE_SIZE;
 
@@ -39,7 +41,7 @@ export class GridRenderer {
       if (this.pointers.size === 2) {
         this.pendingCell = null;
         const [first, second] = [...this.pointers.values()];
-        this.pinch = { distance: Math.hypot(first.x - second.x, first.y - second.y), zoom: this.currentZoom };
+        this.pinch = { distance: Math.hypot(first.x - second.x, first.y - second.y), zoomIndex: zoomIndex(this.currentZoom) };
         return;
       }
       if (this.pointers.size > 2) return;
@@ -59,12 +61,12 @@ export class GridRenderer {
       const ratio = distance / this.pinch.distance;
       if (ratio > 1.35) {
         event.preventDefault();
-        this.applyZoom(this.pinch.zoom + 1, (first.x + second.x) / 2, (first.y + second.y) / 2);
-        this.pinch = { distance, zoom: this.currentZoom };
+        this.applyZoomIndex(this.pinch.zoomIndex + 1, (first.x + second.x) / 2, (first.y + second.y) / 2);
+        this.pinch = { distance, zoomIndex: zoomIndex(this.currentZoom) };
       } else if (ratio < 0.74) {
         event.preventDefault();
-        this.applyZoom(this.pinch.zoom - 1, (first.x + second.x) / 2, (first.y + second.y) / 2);
-        this.pinch = { distance, zoom: this.currentZoom };
+        this.applyZoomIndex(this.pinch.zoomIndex - 1, (first.x + second.x) / 2, (first.y + second.y) / 2);
+        this.pinch = { distance, zoomIndex: zoomIndex(this.currentZoom) };
       }
     }, { passive: false });
     const endPointer = (event) => {
@@ -86,7 +88,7 @@ export class GridRenderer {
     canvas.addEventListener("wheel", (event) => {
       if (!event.ctrlKey || !this.onZoom) return;
       event.preventDefault();
-      this.applyZoom(this.currentZoom + (event.deltaY < 0 ? 1 : -1), event.clientX, event.clientY);
+      this.applyZoomIndex(zoomIndex(this.currentZoom) + (event.deltaY < 0 ? 1 : -1), event.clientX, event.clientY);
     }, { passive: false });
     gameEvents.on("map", () => { this.selectedIndex = null; });
     gameEvents.on("newgame", () => this.terrainCache.clear());
@@ -103,7 +105,7 @@ export class GridRenderer {
 
   applyZoom(target, clientX, clientY) {
     if (!this.onZoom) return;
-    const next = Math.max(1, Math.min(3, target));
+    const next = migrateZoom(target);
     if (next === this.currentZoom) return;
     const container = this.canvas.parentElement;
     const canvasRect = this.canvas.getBoundingClientRect();
@@ -179,10 +181,15 @@ export class GridRenderer {
   }
 
   setZoom(zoom) {
-    this.currentZoom = zoom;
-    const size = GRID_SIZE * zoom;
+    this.currentZoom = migrateZoom(zoom);
+    const size = Math.round(GRID_SIZE * this.currentZoom);
     this.canvas.style.width = `${size}px`;
     this.canvas.style.height = `${size}px`;
+  }
+
+  applyZoomIndex(index, clientX, clientY) {
+    const nextIndex = Math.max(0, Math.min(ZOOM_STEPS.length - 1, index));
+    this.applyZoom(ZOOM_STEPS[nextIndex], clientX, clientY);
   }
 
   drawBuilding(context, state, map, building, index) {
@@ -265,28 +272,16 @@ export class GridRenderer {
     context.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
     context.translate(shake.x, shake.y);
     context.drawImage(this.getTerrain(state), 0, 0);
-    // 地基：已成建设施下方压暗 18%，与荒地拉开层次，又不会喧宾夺主。
-    context.save();
-    context.globalAlpha = 0.18;
-    context.fillStyle = palette["0"];
+    // 地基：不透明 24px 像素地砖，确保设施下方不透出荒地纹理。
     for (let index = 0; index < map.buildings.length; index += 1) {
       const building = map.buildings[index];
       if (!building || building.anchor || building.buildRemaining > 0) continue;
       const size = building.size ?? { w: 1, h: 1 };
-      context.fillRect((index % MAP_SIZE) * TILE_SIZE, Math.floor(index / MAP_SIZE) * TILE_SIZE, size.w * TILE_SIZE, size.h * TILE_SIZE);
-    }
-    context.globalAlpha = 0.34;
-    context.fillStyle = palette["0"];
-    for (let index = 0; index < map.buildings.length; index += 1) {
-      const building = map.buildings[index];
-      if (!building || building.anchor || building.buildRemaining > 0) continue;
-      const size = building.size ?? { w: 1, h: 1 };
+      const tile = getFloorTileSprite(state.currentMap, this.theme);
       const x = (index % MAP_SIZE) * TILE_SIZE;
       const y = Math.floor(index / MAP_SIZE) * TILE_SIZE;
-      context.fillRect(x, y, size.w * TILE_SIZE, 1);
-      context.fillRect(x, y, 1, size.h * TILE_SIZE);
+      for (let dy = 0; dy < size.h; dy += 1) for (let dx = 0; dx < size.w; dx += 1) context.drawImage(tile, x + dx * TILE_SIZE, y + dy * TILE_SIZE);
     }
-    context.restore();
     drawAdjacencyNetwork(context, state);
 
     if (state.currentMap === "ash") {

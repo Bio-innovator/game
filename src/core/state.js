@@ -7,6 +7,7 @@ import { LOG_LIBRARY, formatLog } from "../data/logs.js";
 import { clampResource, safeAdd, safeMultiply } from "./decimal.js";
 import { createGameSeed, deriveSeed, nextRandom } from "./rng.js";
 import { gameEvents } from "./events.js";
+import { ZOOM_STEPS, migrateZoom } from "../data/zoom.js";
 
 export const SAVE_VERSION = 2;
 export const CELL_COUNT = MAP_SIZE * MAP_SIZE;
@@ -97,7 +98,7 @@ export function createInitialState(options = {}) {
     ending: null,
     achievements: [],
     settings: {
-      zoom: 1,
+      zoom: migrateZoom(options.zoom ?? 1),
       speed: 1,
       paused: false,
       theme: globalThis.matchMedia?.("(prefers-color-scheme: light)")?.matches ? "light" : "dark",
@@ -820,8 +821,8 @@ export function apply(state, action) {
     case "SET_SETTING": {
       const allowed = ["zoom", "speed", "paused", "theme", "fontSize", "sound", "showGross"];
       if (!allowed.includes(action.key)) return result(false, "未知设置项。");
-      if (action.key === "theme" && !["dark", "light"].includes(action.value)) return result(false, "未知主题。");
-      if (action.key === "fontSize" && ![12, 14, 16].includes(action.value)) return result(false, "字号不受支持。");
+      if (action.key === "zoom" && !ZOOM_STEPS.includes(action.value)) return result(false, "地图大小档位不受支持。");
+      if (action.key === "theme" && !["dark", "light"].includes(action.value)) return result(false, "未知主题。");      if (action.key === "fontSize" && ![12, 14, 16].includes(action.value)) return result(false, "字号不受支持。");
       if (action.key === "showGross" && typeof action.value !== "boolean") return result(false, "开关取值无效。");
       state.settings[action.key] = action.value;
       return result(true);

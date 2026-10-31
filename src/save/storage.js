@@ -3,6 +3,7 @@ import { MAP_BY_ID, MAP_SIZE } from "../data/maps.js";
 import { TECH_BY_ID } from "../data/techs.js";
 import { RESOURCE_IDS, SAVE_VERSION, createInitialState, createMapState } from "../core/state.js";
 import { createSavePayload } from "./codec.js";
+import { migrateZoom, ZOOM_STEPS } from "../data/zoom.js";
 
 export const SAVE_KEY = "hundred-day-city-save-v1";
 const CELL_COUNT = MAP_SIZE * MAP_SIZE;
@@ -164,7 +165,7 @@ export function migrateAndValidate(payload) {
     ending: source.ending && ["backup", "stay", "upload"].includes(source.ending.id) ? { ...source.ending } : null,
     achievements: Array.isArray(source.achievements) ? source.achievements.filter((id, index, list) => typeof id === "string" && list.indexOf(id) === index) : [],
     settings: {
-      zoom: [1, 2, 3].includes(source.settings?.zoom) ? source.settings.zoom : 1,
+      zoom: migrateZoom(source.settings?.zoom),
       speed: [1, 2, 4].includes(source.settings?.speed) ? source.settings.speed : 1,
       paused: Boolean(source.settings?.paused),
       theme: ["dark", "light"].includes(source.settings?.theme) ? source.settings.theme : base.settings.theme,

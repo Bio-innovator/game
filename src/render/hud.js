@@ -24,6 +24,7 @@ import { ACHIEVEMENTS } from "../systems/achievements.js";
 import { decodeSave, encodeSave } from "../save/codec.js";
 import { clearSave, getLatestSaveBackup, migrateAndValidate, readSaveBackup, writeSaveBackup } from "../save/storage.js";
 import { getBuildingIconUrl } from "./sprites.js";
+import { ZOOM_STEPS, migrateZoom, zoomIndex, zoomPercent } from "../data/zoom.js";
 import { gameEvents } from "../core/events.js";
 
 const CATEGORIES = [
@@ -107,6 +108,7 @@ export class HUD {
       dialogContent: document.querySelector("#dialog-content"),
       ending: document.querySelector("#ending-screen"),
       toast: document.querySelector("#toast"),
+      achievementCount: document.querySelector("#achievement-count"),
     };
     this.bind();
     this.applyTheme();
@@ -116,7 +118,6 @@ export class HUD {
       this.render(true);
     });
     gameEvents.on("dismantle", ({ mapId, index }) => this.tutorial?.markEvent("dismantle", { mapId, index }));
-    gameEvents.on("tutorialTask", ({ name }) => this.showToast(`进阶目标完成：${name}`, "normal"));
     gameEvents.on("achievement", ({ achievement }) => this.showToast(`成就解锁：${achievement.name}`, "normal"));
     gameEvents.on("ending", () => this.showEnding());
     gameEvents.on("newgame", () => {
@@ -155,7 +156,7 @@ export class HUD {
         this.renderBuildList(true);
       }
       if (button.dataset.building) this.selectBuilding(button.dataset.building);
-      if (button.dataset.zoom) this.changeSetting("zoom", Number(button.dataset.zoom));
+      if (button.dataset.zoomIndex) this.changeSetting("zoom", ZOOM_STEPS[Number(button.dataset.zoomIndex)]);
       if (button.dataset.speed) this.changeSetting("speed", Number(button.dataset.speed));
       if (button.dataset.layerStep) this.switchLayer(Number(button.dataset.layerStep));
       if (button.id === "log-toggle") this.toggleLog();
@@ -188,6 +189,19 @@ export class HUD {
       if (button.dataset.endgameTask) this.jumpToTask(button.dataset.endgameMap, button.dataset.endgameBuilding || null);
       if (button.dataset.endingChoice) this.chooseEnding(button.dataset.endingChoice);
       if (button.id === "new-game-plus") this.runAction({ type: "NEW_GAME_PLUS" });
+    });
+    document.addEventListener("input", (event) => {
+      if (event.target.id !== "zoom-range") return;
+      const index = Number(event.target.value);
+      const value = ZOOM_STEPS[index];
+      const output = document.querySelector("#zoom-value");
+      if (output) output.textContent = zoomPercent(value);
+      event.target.setAttribute("aria-valuetext", zoomPercent(value));
+      if (this.zoomFrame) cancelAnimationFrame(this.zoomFrame);
+      this.zoomFrame = requestAnimationFrame(() => {
+        this.zoomFrame = 0;
+        this.changeSetting("zoom", value);
+      });
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-route-resource]")) {
@@ -354,7 +368,8 @@ export class HUD {
     this.elements.mapStatus.classList.toggle("danger", state.settings.paused ? false : storm || diagnosis.code !== "normal" && diagnosis.code !== "building");
     this.elements.centerLevel.textContent = `LV.${state.centerLevel}`;
     this.elements.quota.textContent = `可用配额 ${getQuota(state).available} · 已消耗 ${state.usedQuota}`;
-    document.querySelectorAll("[data-zoom]").forEach((button) => button.classList.toggle("active", Number(button.dataset.zoom) === state.settings.zoom));
+    if (this.elements.achievementCount) this.elements.achievementCount.textContent = `${state.achievements.length}/${ACHIEVEMENTS.length}`;
+    document.querySelectorAll("[data-zoom-index]").forEach((button) => button.classList.toggle("active", Number(button.dataset.zoomIndex) === zoomIndex(state.settings.zoom)));
     document.querySelectorAll("[data-speed]").forEach((button) => button.classList.toggle("active", Number(button.dataset.speed) === state.settings.speed));
     this.renderResources();
     this.renderCategories();
@@ -400,7 +415,7 @@ export class HUD {
     this.buildListSignature = signature;
     this.elements.buildList.innerHTML = entries.map(({ definition, unlocked, cost, affordable, owned }) => `<button type="button" class="build-card ${this.selectedBuilding === definition.id ? "selected" : ""} ${!unlocked ? "locked" : ""} ${unlocked && !affordable ? "unaffordable" : ""}" data-building="${definition.id}" title="${escapeHtml(definition.description)}">
         <img class="build-icon" width="32" height="32" src="${getBuildingIconUrl(definition.id)}" alt="" aria-hidden="true">
-        <span><strong class="build-name">${definition.name}${owned ? ` ×${owned}` : ""}</strong><small class="build-cost">${unlocked ? costText(cost) : `科研锁定 · ${definition.unlock}`}</small><small class="build-output">${buildingOutputText(definition)}</small><small class="build-energy">${definition.energy > 0 ? `-${formatNumber(definition.energy)} ⚡/s · 能耗` : "不耗电"}</small></span>
+        <span><strong class="build-name">${definition.name}${owned ? ` ×${owned}` : ""}</strong><small class="build-cost">${unlocked ? `成本：${costText(cost)}` : `科研锁定 · ${definition.unlock}`}</small><small class="build-output">产出：${definition.produce.energy || Object.keys(definition.produce).length ? buildingOutputText(definition) : "—"}</small><small class="build-energy">耗电：${definition.energy > 0 ? `-${formatNumber(definition.energy)} ⚡/s` : "0"}</small></span>
         <span class="build-time">${unlocked && !affordable ? "缺料" : `${definition.size ? `${definition.size.w}×${definition.size.h} · ` : ""}${definition.buildTime}s`}</span>
       </button>`).join("") || `<div class="empty-state">该类别暂无可用蓝图。</div>`;
   }
@@ -446,12 +461,13 @@ export class HUD {
     } else {
       this.dialogMode = mode;
     }
-    if (mode === "settings") this.tutorial?.markSettingsOpened();
+    if (mode === "settings") this.tutorial?.start(false);
     const headings = {
       research: ["研究", "科技树"],
       maps: ["区域", "区域与开拓"],
       network: ["物流", "物流网络"],
       settings: ["选项", "设置"],
+      achievements: ["成就", `成就 ${this.state.achievements.length}/${ACHIEVEMENTS.length}`],
       endgame: ["终局", "终局协议"],
     };
     const [eyebrow, title] = headings[mode] ?? ["SYSTEM", "系统"];
@@ -468,7 +484,7 @@ export class HUD {
   }
 
   renderDialog() {
-    if (this.dialogMode === "research") this.renderResearch();
+    if (this.dialogMode === "achievements") this.renderAchievements();
     if (this.dialogMode === "maps") this.renderMaps();
     if (this.dialogMode === "network") this.renderNetwork();
     if (this.dialogMode === "settings") this.renderSettings();
@@ -476,6 +492,14 @@ export class HUD {
     if (this.dialogMode === "endgame") this.renderEndgame();
   }
 
+  renderAchievements() {
+    const done = this.state.achievements.length;
+    const rows = ACHIEVEMENTS.map((item) => {
+      const completed = this.state.achievements.includes(item.id);
+      return `<article class="achievement-card ${completed ? "done" : "locked"}"><strong>${completed ? "✓ " : ""}${item.name}</strong><small>${item.description}</small></article>`;
+    }).join("");
+    this.elements.dialogContent.innerHTML = `<div class="achievement-overview"><strong>${done} / ${ACHIEVEMENTS.length}</strong><span>已解锁成就</span><div class="achievement-progress"><span style="width:${Math.round(done / ACHIEVEMENTS.length * 100)}%"></span></div></div><div class="achievement-grid">${rows}</div>`;
+  }
   renderResearch() {
     const branches = Object.keys(BRANCH_NAMES).map((branch) => {
       const nodes = TECHS.filter((tech) => tech.branch === branch).sort((a, b) => a.position.y - b.position.y).map((tech) => {
@@ -530,7 +554,7 @@ export class HUD {
     const tabs = [["display", "显示"], ["game", "游戏"], ["save", "存档"], ["about", "关于"]].map(([id, name]) => `<button type="button" data-settings-tab="${id}" class="${this.settingsTab === id ? "active" : ""}">${name}</button>`).join("");
     let body = "";
     if (this.settingsTab === "display") {
-      body = `<div class="settings-grid"><div class="setting-group"><h3>主题</h3><div class="dialog-actions"><button type="button" data-theme="dark" class="${this.state.settings.theme === "dark" ? "active" : ""}">深色</button><button type="button" data-theme="light" class="${this.state.settings.theme === "light" ? "active" : ""}">浅色</button></div></div><div class="setting-group"><h3>整数缩放</h3><div class="dialog-actions">${[1, 2, 3].map((value) => `<button type="button" data-zoom="${value}" class="${this.state.settings.zoom === value ? "active" : ""}">${value}×</button>`).join("")}</div></div><div class="setting-group"><h3>字号</h3><div class="dialog-actions">${[12, 14, 16].map((value) => `<button type="button" data-fontsize="${value}" class="${this.state.settings.fontSize === value ? "active" : ""}">${value}px</button>`).join("")}</div></div><div class="setting-group"><h3>资源条</h3><div class="dialog-actions"><button type="button" data-gross class="${this.state.settings.showGross ? "active" : ""}">${this.state.settings.showGross ? "显示毛产出 / 毛消耗" : "只显示净值"}</button></div><p class="dialog-intro">开启后资源条拆开毛产出与毛消耗，便于判断「在产但被下游吃满」。</p></div></div>`;
+      body = `<div class="settings-grid"><div class="setting-group"><h3>主题</h3><div class="dialog-actions"><button type="button" data-theme="dark" class="${this.state.settings.theme === "dark" ? "active" : ""}">深色</button><button type="button" data-theme="light" class="${this.state.settings.theme === "light" ? "active" : ""}">浅色</button></div></div><div class="setting-group"><h3>地图大小 <output id="zoom-value">${zoomPercent(this.state.settings.zoom)}</output></h3><label class="range-field"><input id="zoom-range" type="range" min="0" max="${ZOOM_STEPS.length - 1}" step="1" value="${zoomIndex(this.state.settings.zoom)}" aria-label="地图大小" aria-valuetext="${zoomPercent(this.state.settings.zoom)}"><span>50%</span><span>300%</span></label><p class="dialog-intro">100% / 200% 最清晰，其他比例用于适配窗口。</p></div><div class="setting-group"><h3>字号</h3><div class="dialog-actions">${[12, 14, 16].map((value) => `<button type="button" data-fontsize="${value}" class="${this.state.settings.fontSize === value ? "active" : ""}">${value}px</button>`).join("")}</div></div><div class="setting-group"><h3>资源条</h3><div class="dialog-actions"><button type="button" data-gross class="${this.state.settings.showGross ? "active" : ""}">${this.state.settings.showGross ? "显示毛产出 / 毛消耗" : "只显示净值"}</button></div><p class="dialog-intro">开启后资源条拆开毛产出与毛消耗，便于判断「在产但被下游吃满」。</p></div></div>`;
     }
     if (this.settingsTab === "game") {
       body = `<div class="settings-grid"><div class="setting-group"><h3>流速</h3><div class="dialog-actions">${[1, 2, 4].map((value) => `<button type="button" data-speed="${value}" class="${this.state.settings.speed === value ? "active" : ""}">${value}×</button>`).join("")}</div></div><div class="setting-group"><h3>模拟</h3><div class="dialog-actions"><button type="button" id="settings-pause">${this.state.settings.paused ? "继续模拟" : "暂停模拟"}</button></div></div><div class="setting-group"><h3>音效</h3><div class="dialog-actions"><button type="button" id="settings-sound">${this.state.settings.sound ? "音效：开启" : "音效：关闭"}</button></div><p class="dialog-intro">当前版本暂不播放声音，此开关仅为后续音效预留。</p></div></div>`;
@@ -538,7 +562,7 @@ export class HUD {
     if (this.settingsTab === "save") body = this.getSaveMarkup();
     if (this.settingsTab === "about") {
       const achievements = ACHIEVEMENTS.map((item) => `<li class="achievement-row ${this.state.achievements.includes(item.id) ? "done" : ""}"><span>${this.state.achievements.includes(item.id) ? "✓" : "·"}</span><span><strong>${item.name}</strong><small>${item.description}</small></span></li>`).join("");
-      body = `<div class="settings-grid"><div class="setting-group"><h3>版本</h3><p class="dialog-intro">Hundred-Day City v${APP_VERSION}<br>存档格式 v${this.state.version}</p></div><div class="setting-group"><h3>许可</h3><p class="dialog-intro">MIT License<br>Copyright (c) 2026 Bio-innovator</p></div><div class="setting-group"><h3>教程</h3><p class="dialog-intro">首次进入显示必看 4 步；进阶 8 条会随系统触发并保留在侧边清单。</p><button type="button" id="tutorial-replay" class="primary">重看教程</button></div><div class="setting-group"><h3>成就 ${this.state.achievements.length} / ${ACHIEVEMENTS.length}</h3><ul class="achievement-list">${achievements}</ul></div></div>`;
+      body = `<div class="settings-grid"><div class="setting-group"><h3>版本</h3><p class="dialog-intro">Hundred-Day City v${APP_VERSION}<br>存档格式 v${this.state.version}</p></div><div class="setting-group"><h3>许可</h3><p class="dialog-intro">MIT License<br>Copyright (c) 2026 Bio-innovator</p></div><div class="setting-group"><h3>教程</h3><p class="dialog-intro">首次进入显示必看 4 步。</p><button type="button" id="tutorial-replay" class="primary">重看教程</button></div><div class="setting-group"><h3>成就</h3><button type="button" data-open="achievements" class="primary">查看成就 ${this.state.achievements.length} / ${ACHIEVEMENTS.length}</button></div></div>`;
     }
     this.elements.dialogContent.innerHTML = `<nav class="settings-tabs" aria-label="设置分类">${tabs}</nav><div class="settings-body">${body}</div>`;
   }
