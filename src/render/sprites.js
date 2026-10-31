@@ -1,5 +1,5 @@
 import { getPalette } from "../../assets/palette.js";
-import { TERRAIN_SPRITES } from "../../assets/sprites/terrain.js";
+import { TERRAIN_SPRITES, getFloorTile } from "../../assets/sprites/terrain.js";
 import { BUILDING_SPRITES, CORE_SPRITE, RUBBLE_SPRITE } from "../../assets/sprites/buildings.js";
 import { EFFECT_SPRITES } from "../../assets/sprites/effects.js";
 
@@ -62,6 +62,10 @@ export function getTerrainSprite(mapId, variant) {
 }
 
 
+
+export function getFloorTileSprite(mapId, theme = "dark") {
+  return getFloorTile(mapId, theme);
+}
 export function getEffectSprite(id) {
   return cached(`effect:${id}`, EFFECT_SPRITES[id]);
 }

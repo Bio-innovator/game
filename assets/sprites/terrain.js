@@ -481,3 +481,26 @@ export const TERRAIN_SPRITES = {
     ],
   ],
 };
+
+
+const FLOOR_TILES = {
+  ash: ["#6E5B4A", "#4E4034", "#B47A50"],
+  swamp: ["#3E4A3A", "#2A3328", "#70866A"],
+  rift: ["#5A5A60", "#3E3E44", "#92979E"],
+  ice: ["#B8C6CC", "#8E9CA2", "#E0F0EC"],
+  orbit: ["#3A4250", "#262C36", "#7898AA"],
+  moon: ["#5E5A66", "#44404C", "#B0A8B5"],
+};
+
+export function getFloorTile(mapId, theme = "dark") {
+  const colors = FLOOR_TILES[mapId] ?? FLOOR_TILES.ash;
+  const canvas = document.createElement("canvas");
+  canvas.width = 24; canvas.height = 24;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = colors[0]; ctx.fillRect(0, 0, 24, 24);
+  ctx.fillStyle = colors[1]; ctx.fillRect(0, 0, 24, 1); ctx.fillRect(0, 0, 1, 24); ctx.fillRect(23, 0, 1, 24); ctx.fillRect(0, 23, 24, 1);
+  ctx.fillStyle = colors[2];
+  ctx.fillRect(5, 7, 1, 1); ctx.fillRect(17, 16, 1, 1);
+  return canvas;
+}
