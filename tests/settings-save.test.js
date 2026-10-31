@@ -34,17 +34,20 @@ test("离线结算接口与离线事件已移除", () => {
 test("设置默认值、校验和存档持久化", () => {
   const state = createInitialState({ seed: 2 });
   assert.ok(["dark", "light"].includes(state.settings.theme));
-  assert.equal(state.settings.fontSize, 13);
+  assert.equal(state.settings.fontSize, 14);
   assert.equal(state.settings.sound, false);
   assert.equal(apply(state, { type: "SET_SETTING", key: "theme", value: "light" }).ok, true);
-  assert.equal(apply(state, { type: "SET_SETTING", key: "fontSize", value: 15 }).ok, true);
+  assert.equal(apply(state, { type: "SET_SETTING", key: "fontSize", value: 16 }).ok, true);
   assert.equal(apply(state, { type: "SET_SETTING", key: "theme", value: "sepia" }).ok, false);
   assert.equal(apply(state, { type: "SET_SETTING", key: "fontSize", value: 99 }).ok, false);
   assert.equal(apply(state, { type: "SET_SETTING", key: "unknown", value: 1 }).ok, false);
+  assert.equal(apply(state, { type: "SET_SETTING", key: "showGross", value: true }).ok, true);
+  assert.equal(apply(state, { type: "SET_SETTING", key: "showGross", value: "yes" }).ok, false);
 
   const restored = migrateAndValidate(decodeSave(encodeSave(state)));
   assert.equal(restored.settings.theme, "light");
-  assert.equal(restored.settings.fontSize, 15);
+  assert.equal(restored.settings.fontSize, 16);
+  assert.equal(restored.settings.showGross, true);
 });
 
 test("载入旧存档不会推进天数或资源", () => {

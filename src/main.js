@@ -37,9 +37,9 @@ function dispatch(action) {
   return response;
 }
 
-const grid = new GridRenderer(canvas, (index) => hud.selectCell(index));
+const grid = new GridRenderer(canvas, (index) => hud.selectCell(index), (zoom) => hud.changeSetting("zoom", zoom));
 const hud = new HUD(state, dispatch);
-const tutorial = new Tutorial();
+const tutorial = new Tutorial(state);
 hud.attachGrid(grid);
 hud.setTutorial(tutorial);
 grid.render(state);
@@ -78,6 +78,9 @@ if (loaded) {
 } else {
   startGame();
 }
+
+// 调试与自动化验收钩子：只读引用，不改变游戏逻辑。
+window.__HDC__ = { state, grid, hud, tutorial, dispatch };
 
 window.addEventListener("beforeunload", () => {
   if (!suppressExitSave) saveGame(state);
